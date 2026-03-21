@@ -82,7 +82,7 @@ module IGS023 #(parameter SS_IDX=-1) (
     output reg        vblank_irq,
 
     // Video interface
-    output [14:0] color,
+    output reg [14:0] color,
     output hsync,
     output hblank,
     output vsync,
@@ -106,6 +106,10 @@ typedef enum bit [2:0]
 reg [4:0] ce_pixel_shift;
 assign ce_pixel = ce_50m & ce_pixel_shift[4];
 wire ce_pixel_pre1 = ce_50m & ce_pixel_shift[3];
+wire ce_pixel_pre2 = ce_50m & ce_pixel_shift[2];
+wire ce_pixel_post1 = ce_50m & ce_pixel_shift[0];
+wire ce_pixel_post2 = ce_50m & ce_pixel_shift[1];
+wire ce_pixel_post3 = ce_50m & ce_pixel_shift[2];
 
 always_ff @(posedge clk) begin
     if (~|ce_pixel_shift) begin
@@ -151,7 +155,6 @@ assign hblank = hsync;
 assign vsync = ~(vcnt_actual >= 2 && vcnt_actual < 226);
 assign vblank = vsync;
 
-assign color = {~fg_dot[3:0], 1'b0, ~fg_dot[3:0], 1'b0, ~fg_dot[3:0], 1'b0};
 
 always @(posedge clk) begin
     if (reset) begin
@@ -224,6 +227,19 @@ wire [15:0] bg_addr           = 16'h0000;
 wire [15:0] fg_addr           = 16'h4000;
 wire [15:0] bg_rowscroll_addr = 16'h7000;
 
+reg [6:0] color_read;
+reg [14:0] color_addr;
+
+always_ff @(posedge clk) begin
+    if (ce_pixel) begin
+        color <= {color_read, pal_din[7:0]};
+        color_addr <= 14'h1000 + { 4'd0, fg_dot[9:5], fg_dot[3:0], 1'b0 };
+    end else if (ce_pixel_post2) begin
+        color_addr <= 14'h1000 + { 4'd0, fg_dot[9:5], fg_dot[3:0], 1'b1 };
+        color_read <= pal_din[6:0];
+    end
+end
+
 always_comb begin
     bit [5:0] h;
     bit [8:0] v;
@@ -232,7 +248,7 @@ always_comb begin
     vram_we_l_n = 1;
     vram_we_u_n = 1;
 
-    pal_addr  = 15'd0;
+    pal_addr  = color_addr;
     pal_we_n = 1;
 
     v = 0;
