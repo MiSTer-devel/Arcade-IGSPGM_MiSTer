@@ -332,7 +332,7 @@ class RAMWindow : public Window
         mTabs.clear();
         mTabs.emplace_back("Work", gSimCore.Memory(MemoryRegion::WORK_RAM));
         mTabs.emplace_back("Video", gSimCore.Memory(MemoryRegion::VIDEO_RAM));
-        mTabs.emplace_back("Z80", gSimCore.Memory(MemoryRegion::Z80_RAM));
+        mTabs.emplace_back("Audio", gSimCore.Memory(MemoryRegion::AUDIO_RAM));
         mTabs.emplace_back("Palette", gSimCore.Memory(MemoryRegion::PALETTE_RAM));
     }
 

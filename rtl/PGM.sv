@@ -343,8 +343,7 @@ logic ROMn;
 logic PROGn;
 logic WORKRAMn;
 logic IGS023n;
-logic Z80RAMn;
-logic Z80REGn;
+logic IGS026_Z80n;
 logic IOn;
 
 //wire sdr_dtack_n = sdr_cpu_req != sdr_cpu_ack;
@@ -470,8 +469,7 @@ address_translator address_translator(
     .PROGn,
     .IOn,
     .IGS023n,
-    .Z80REGn,
-    .Z80RAMn,
+    .IGS026_Z80n,
 
     .SS_SAVEn,
     .SS_RESETn,
@@ -484,10 +482,9 @@ assign cpu_data_in = ~SS_SAVEn ? ss_irq_handler[cpu_addr[3:0]] :
                      ~ROMn ? rom_q :
                      ~PROGn ? rom_q :
                      ~WORKRAMn ? workram_q :
-                     ~Z80RAMn ? z80ram_q :
                      ~IGS023n ? igs023_q :
                      ~IOn ? io_q :
-                     ~Z80REGn ? igs026_z80_q :
+                     ~IGS026_Z80n ? igs026_z80_q :
                      16'd0;
 
 wire [15:0] workram_addr;
@@ -520,32 +517,32 @@ m68k_ram_ss_adaptor #(.WIDTHAD(16), .SS_IDX(SSIDX_WORK_RAM)) workram_ss(
     .ssbus(ssb[1])
 );
 
-wire [15:0] z80ram_addr;
-wire z80ram_lds_n, z80ram_uds_n;
-wire [15:0] z80ram_data, z80ram_q;
+wire [14:0] aram_addr;
+wire aram_lds_n, aram_uds_n;
+wire [15:0] aram_data, aram_q;
 
-m68k_ram #(.WIDTHAD(16)) z80_ram(
+m68k_ram #(.WIDTHAD(15)) aram(
     .clock(clk),
-    .address(z80ram_addr),
-    .we_lds_n(z80ram_lds_n),
-    .we_uds_n(z80ram_uds_n),
-    .data(z80ram_data),
-    .q(z80ram_q)
+    .address(aram_addr),
+    .we_lds_n(aram_lds_n),
+    .we_uds_n(aram_uds_n),
+    .data(aram_data),
+    .q(aram_q)
 );
 
-m68k_ram_ss_adaptor #(.WIDTHAD(16), .SS_IDX(SSIDX_Z80_RAM)) z80ram_ss(
+m68k_ram_ss_adaptor #(.WIDTHAD(15), .SS_IDX(SSIDX_Z80_RAM)) aram_ss(
     .clk,
-    .addr_in(cpu_addr[15:0]),
-    .lds_n_in(Z80RAMn | cpu_ds_n[0] | cpu_rw),
-    .uds_n_in(Z80RAMn | cpu_ds_n[1] | cpu_rw),
-    .data_in(cpu_data_out),
+    .addr_in(igs026_z80_aram_addr),
+    .lds_n_in(igs026_z80_aram_lds_n),
+    .uds_n_in(igs026_z80_aram_uds_n),
+    .data_in(igs026_z80_aram_dout),
 
-    .q(z80ram_q),
+    .q(aram_q),
 
-    .addr_out(z80ram_addr),
-    .lds_n_out(z80ram_lds_n),
-    .uds_n_out(z80ram_uds_n),
-    .data_out(z80ram_data),
+    .addr_out(aram_addr),
+    .lds_n_out(aram_lds_n),
+    .uds_n_out(aram_uds_n),
+    .data_out(aram_data),
 
     .ssbus(ssb[4])
 );
@@ -675,6 +672,11 @@ wire [15:0] igs026_z80_q;
 wire v3021_cs_n, v3021_wr_n;
 wire v3021_din, v3021_dout;
 
+wire [14:0] igs026_z80_aram_addr;
+wire [15:0] igs026_z80_aram_dout;
+
+wire igs026_z80_aram_uds_n, igs026_z80_aram_lds_n;
+
 IGS026_Z80 igs026_z80(
     .clk,
 
@@ -685,12 +687,18 @@ IGS026_Z80 igs026_z80(
     .cpu_lds_n(cpu_ds_n[0]),
     .cpu_uds_n(cpu_ds_n[1]),
     .cpu_rw(cpu_rw),
-    .cpu_cs_n(Z80REGn),
+    .cpu_cs_n(IGS026_Z80n),
 
     .v3021_cs_n,
     .v3021_wr_n,
     .v3021_dout(v3021_din),
-    .v3021_din(v3021_dout)
+    .v3021_din(v3021_dout),
+
+    .aram_addr(igs026_z80_aram_addr),
+    .aram_din(aram_q),
+    .aram_dout(igs026_z80_aram_dout),
+    .aram_lds_n(igs026_z80_aram_lds_n),
+    .aram_uds_n(igs026_z80_aram_uds_n)
 );
 
 V3021 v3021(

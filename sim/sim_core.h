@@ -26,7 +26,7 @@ enum class MemoryRegion : int
     PALETTE_RAM,
     VIDEO_RAM,
     WORK_RAM,
-    Z80_RAM,
+    AUDIO_RAM,
     TILE_ROM,
 
     COUNT

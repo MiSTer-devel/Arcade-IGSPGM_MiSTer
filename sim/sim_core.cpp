@@ -60,7 +60,7 @@ void SimCore::Init()
     mGfxCache = std::make_unique<GfxCache>();
 
     SetMemory(MemoryRegion::WORK_RAM, unique_memory_16b(work_ram, 128 * 1024));
-    SetMemory(MemoryRegion::Z80_RAM, unique_memory_16b(z80_ram, 64 * 1024));
+    SetMemory(MemoryRegion::AUDIO_RAM, unique_memory_16b(aram, 64 * 1024));
     SetMemory(MemoryRegion::VIDEO_RAM, unique_memory_16b(vram, 64 * 1024));
     SetMemory(MemoryRegion::PALETTE_RAM, unique_memory_8b(palram, 32 * 1024));
     SetMemory(MemoryRegion::BIOS_ROM, std::make_unique<MemorySlice>(*mSDRAM, CPU_ROM_SDR_BASE, 1024 * 1024));

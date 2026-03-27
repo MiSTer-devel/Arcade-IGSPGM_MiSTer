@@ -11,8 +11,7 @@ module address_translator(
     output logic PROGn,
     output logic WORKRAMn,
     output logic IGS023n,
-    output logic Z80RAMn,
-    output logic Z80REGn,
+    output logic IGS026_Z80n,
     output logic IOn,
     output logic SS_SAVEn,
     output logic SS_RESETn,
@@ -33,8 +32,7 @@ always_comb begin
     PROGn = 1;
     WORKRAMn = 1;
     IGS023n = 1;
-    Z80RAMn = 1;
-    Z80REGn = 1;
+    IGS026_Z80n = 1;
     IOn = 1;
 
     SS_SAVEn = 1;
@@ -65,8 +63,7 @@ always_comb begin
         ROMn = match_addr_n(cpu_word_addr, 16'h0000, 16'h8000);
         WORKRAMn = match_addr_n(cpu_word_addr, 16'h8000, 16'hf000);
         IGS023n = match_addr_n(cpu_word_addr, 16'h9000, 16'hff00) & match_addr_n(cpu_word_addr, 16'ha000, 16'hff00) & match_addr_n(cpu_word_addr, 16'hb000, 16'hff00);
-        Z80REGn = match_addr_n(cpu_word_addr, 16'hc000, 16'hffff);
-        Z80RAMn = match_addr_n(cpu_word_addr, 16'hc100, 16'hff00);
+        IGS026_Z80n = match_addr_n(cpu_word_addr, 16'hc000, 16'hfe00);
         IOn = match_addr_n(cpu_word_addr, 16'hc080, 16'hffff);
         
     end
