@@ -28,6 +28,7 @@ SRCS = imgui/imgui.cpp \
 		imgui/backends/imgui_impl_sdlrenderer2.cpp \
 		dis68k/dis68k.cpp \
 		igs023.cpp \
+		igs023_sprite.cpp \
 		sim_state.cpp \
 		sim_main.cpp \
 		sim_core.cpp \
