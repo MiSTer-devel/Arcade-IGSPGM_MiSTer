@@ -351,6 +351,7 @@ module ics2115
 
     always_comb begin
         reg_read_data = 16'd0;
+		  irqv_found = 0;
 
         if (reg_select < 8'h20) begin
             case (reg_select[4:0])

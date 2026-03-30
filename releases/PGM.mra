@@ -15,7 +15,7 @@
 		<dip name="Dip6" bits="6" values="1,0" ids="Off,On"/>
 		<dip name="Dip7" bits="7" values="1,0" ids="Off,On"/>
 	</switches>
-	<rom index="0" address="0x30000000" zip="pgm.zip">
+	<rom index="0" download="0x30000000" zip="pgm.zip">
 		<part>00 00</part>
 		<part>00020000</part>
 		<part name="pgm_p02s.u20"/>

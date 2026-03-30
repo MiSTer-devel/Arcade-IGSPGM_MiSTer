@@ -122,7 +122,7 @@ always @(posedge sys_clk) begin
             sdr_buffer[7:0] <= ioctl_data;
             offset <= offset + 25'd1;
             if (offset[0] == 1'b1) begin
-                sdr_addr <= { 2'b0, base_addr[24:0] + {offset[24:1], 1'b0} };
+                sdr_addr <= { base_addr[26:0] + {2'b0, offset[24:1], 1'b0} };
                 sdr_data <= {ioctl_data, sdr_buffer[7:0]};
                 sdr_be <= 2'b11;
                 sdr_rw <= 0; // write

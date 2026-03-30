@@ -124,13 +124,13 @@ ssbus_mux #(.COUNT(20)) ssmux(
 );
 
 always_ff @(posedge clk) begin
-    ssb[0].setup(SSIDX_GLOBAL, 1, 2); // 1, 32-bit value
-    if (ssb[0].access(SSIDX_GLOBAL)) begin
-        if (ssb[0].read) begin
-            ssb[0].read_response(SSIDX_GLOBAL, { 32'd0, ss_saved_ssp });
-        end else if (ssb[0].write) begin
-            ss_restore_ssp <= ssb[0].data[31:0];
-            ssb[0].write_ack(SSIDX_GLOBAL);
+    ssb[SSIDX_GLOBAL].setup(SSIDX_GLOBAL, 1, 2); // 1, 32-bit value
+    if (ssb[SSIDX_GLOBAL].access(SSIDX_GLOBAL)) begin
+        if (ssb[SSIDX_GLOBAL].read) begin
+            ssb[SSIDX_GLOBAL].read_response(SSIDX_GLOBAL, { 32'd0, ss_saved_ssp });
+        end else if (ssb[SSIDX_GLOBAL].write) begin
+            ss_restore_ssp <= ssb[SSIDX_GLOBAL].data[31:0];
+            ssb[SSIDX_GLOBAL].write_ack(SSIDX_GLOBAL);
         end
     end
 end
@@ -514,7 +514,7 @@ m68k_ram_ss_adaptor #(.WIDTHAD(16), .SS_IDX(SSIDX_WORK_RAM)) workram_ss(
     .uds_n_out(workram_uds_n),
     .data_out(workram_data),
 
-    .ssbus(ssb[1])
+    .ssbus(ssb[SSIDX_WORK_RAM])
 );
 
 wire [14:0] aram_addr;
@@ -544,7 +544,7 @@ m68k_ram_ss_adaptor #(.WIDTHAD(15), .SS_IDX(SSIDX_Z80_RAM)) aram_ss(
     .uds_n_out(aram_uds_n),
     .data_out(aram_data),
 
-    .ssbus(ssb[4])
+    .ssbus(ssb[SSIDX_Z80_RAM])
 );
 
 
@@ -584,7 +584,7 @@ ram_ss_adaptor #(.WIDTH(8), .WIDTHAD(15), .SS_IDX(SSIDX_PAL_RAM)) palram_ss(
     .wren_out(pal_wren),
     .data_out(pal_data),
 
-    .ssbus(ssb[5])
+    .ssbus(ssb[SSIDX_PAL_RAM])
 );
 
 m68k_ram #(.WIDTHAD(15)) vram(
@@ -610,7 +610,7 @@ m68k_ram_ss_adaptor #(.WIDTHAD(15), .SS_IDX(SSIDX_VIDEO_RAM)) vram_ss(
     .uds_n_out(vram_uds_n),
     .data_out(vram_data),
 
-    .ssbus(ssb[2])
+    .ssbus(ssb[SSIDX_VIDEO_RAM])
 );
 
 wire [14:0] igs023_color;
@@ -665,7 +665,7 @@ IGS023 #(.SS_IDX(SSIDX_IGS023)) igs023(
     .vsync,
     .vblank,
 
-    .ssbus(ssb[3])
+    .ssbus(ssb[SSIDX_IGS023])
 );
 
 wire [15:0] igs026_x_q;
@@ -689,7 +689,7 @@ wire ics2115_cs_n, ics2115_rd_n, ics2115_wr_n;
 wire ics2115_irq, ics2115_ready;
 wire ics2115_reset_n;
 
-wire [23:0] ics2115_rom_addr;
+wire [22:0] ics2115_rom_addr;
 wire [15:0] ics2115_rom_q;
 wire        ics2115_rom_read;
 
@@ -701,7 +701,7 @@ rom_cache2 audio_romcache(
     .sdr_req(sdr_audio_req),
     .sdr_ack(sdr_audio_ack),
 
-    .addr(MUSIC_ROM_SDR_BASE + {3'b0, ics2115_rom_addr}),
+    .addr(MUSIC_ROM_SDR_BASE + {3'b0, ics2115_rom_addr[22:0], 1'b0}),
     .read(ics2115_rom_read),
     .data(ics2115_rom_q),
     .data_valid()
@@ -835,7 +835,7 @@ wire [7:0] z80_ss_device_idx;
 
 auto_save_adaptor2 #(.SS_IDX(SSIDX_Z80)) z80_ss_adaptor(
     .clk,
-    .ssbus(ssb[4]),
+    .ssbus(ssb[SSIDX_Z80]),
     .rd(z80_ss_rd),
     .wr(z80_ss_wr),
     .ack(z80_ss_ack),
