@@ -1,0 +1,15 @@
+.program serial_audio_capture
+; Placeholder PIO program for external-clocked stereo serial audio capture.
+; Planned use:
+; - external CLK drives shifting
+; - LRCLK selects left/right channel
+; - SI carries 16-bit signed PCM, MSB first
+; - firmware will support the source's backward-justified alignment
+;
+; This scaffold intentionally keeps the program minimal until timing on the
+; actual hardware is verified.
+
+.wrap_target
+    wait 1 pin 0
+    in pins, 1
+.wrap
