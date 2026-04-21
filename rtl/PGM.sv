@@ -700,6 +700,7 @@ wire [22:0] ics2115_rom_addr /* verilator public_flat */;
 wire [15:0] ics2115_rom_q;
 wire        ics2115_rom_read;
 wire        ics2115_data_valid;
+wire  [4:0] ics2115_voice_id;
 wire signed [15:0] ics2115_audio_left;
 wire signed [15:0] ics2115_audio_right;
 wire               ics2115_audio_valid;
@@ -708,7 +709,7 @@ wire [26:0] ics2115_sdr_addr = (cart_present && ics2115_rom_addr[22:0] >= cart_m
                                ? CART_MUSIC_ROM_SDR_BASE + { 3'b0, ics2115_rom_addr[22:0] - cart_music_base[23:1], 1'b0 }
                                : BIOS_MUSIC_ROM_SDR_BASE + { 3'b0, ics2115_rom_addr[22:0], 1'b0 };
 
-rom_cache2 audio_romcache(
+audio_rom_cache audio_rom_cache(
     .clk,
 
     .sdr_addr(sdr_audio_addr),
@@ -718,6 +719,7 @@ rom_cache2 audio_romcache(
 
     .addr(ics2115_sdr_addr),
     .read(ics2115_rom_read),
+    .channel(ics2115_voice_id),
     .data({ics2115_rom_q[7:0], ics2115_rom_q[15:8]}),
     .data_valid(ics2115_data_valid)
 );
@@ -797,7 +799,7 @@ ics2115 ics2115(
     .rom_addr(ics2115_rom_addr),
     .rom_data(ics2115_rom_q),
     .rom_rd(ics2115_rom_read),
-    .rom_voice_id(),
+    .rom_voice_id(ics2115_voice_id),
     .rom_data_valid(ics2115_data_valid),
 
     .audio_left(ics2115_audio_left),
