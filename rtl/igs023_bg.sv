@@ -11,6 +11,11 @@ module IGS023_BG(
 
     output [9:0] color_out,
 
+    input [31:0] scale_bits_x,
+    input [31:0] scale_bits_y,
+    input        zoom_mode_x,
+    input        zoom_mode_y,
+
     // VRAM interface
     output logic [14:0] vram_addr,
     input        [7:0]  vram_din,
@@ -23,8 +28,11 @@ module IGS023_BG(
     input             rom_ack
 );
 
+
 reg [4:0] buffer[32];
 reg [4:0] pal_buffer[32];
+
+reg [31:0] scale_shifter_x;
 
 reg load_buffer;
 reg [31:0] stage_data;
@@ -131,8 +139,16 @@ always_ff @(posedge clk) begin
         if (load_slot == 4) load_slot <= 0;
     end
 
+    if (scale_shifter_x[0]) begin
+        pixel_out_idx <= pixel_out_idx + 1;
+        scale_shifter_x <= { scale_shifter_x[0], scale_shifter_x[31:1] };
+    end
+
     if (ce_pixel) begin
-        if (scan_active) pixel_out_idx <= pixel_out_idx + 1;
+        if (scan_active) begin
+            pixel_out_idx <= pixel_out_idx + 1;
+            scale_shifter_x <= { scale_shifter_x[0], scale_shifter_x[31:1] };
+        end
 
         case(state)
             READ_SCROLL0: begin
@@ -153,6 +169,7 @@ always_ff @(posedge clk) begin
 
             APPLY_SCROLL: begin
                 pixel_out_idx <= { 4'd1, scrolled_x[4:0] };
+                scale_shifter_x <= scale_bits_x;
                 pixel_in_idx <= 0;
                 vram_row_addr <= { 1'b0, y[10:5] };
                 tile_addr <= {scrolled_x[10:5], 2'b00};
@@ -232,6 +249,8 @@ always_ff @(posedge clk) begin
                     state <= READ0;
                 end
             end
+
+            DONE: begin rom_req <= rom_ack; end
             default: begin end
         endcase
     end

@@ -35,15 +35,15 @@ module PGM(
     output reg        sdr_cpu_req,
     input             sdr_cpu_ack,
 
-    output reg [26:0] sdr_scn0_addr,
-    input      [31:0] sdr_scn0_q,
-    output reg        sdr_scn0_req,
-    input             sdr_scn0_ack,
+    output reg [26:0] sdr_tile_addr,
+    input      [31:0] sdr_tile_q,
+    output reg        sdr_tile_req,
+    input             sdr_tile_ack,
 
-    output reg [26:0] sdr_scn_mux_addr,
-    input      [63:0] sdr_scn_mux_q,
-    output reg        sdr_scn_mux_req,
-    input             sdr_scn_mux_ack,
+    output reg [26:0] sdr_sprite_addr,
+    input      [63:0] sdr_sprite_q,
+    output reg        sdr_sprite_req,
+    input             sdr_sprite_ack,
 
     output reg [26:0] sdr_audio_addr,
     input      [63:0] sdr_audio_q,
@@ -108,8 +108,8 @@ wire IACKn = ~&cpu_fc;
 /////////////////////////////
 
 
-assign sdr_scn_mux_addr = 0;
-assign sdr_scn_mux_req = 0;
+assign sdr_sprite_addr = 0;
+assign sdr_sprite_req = 0;
 
 
 logic SS_SAVEn, SS_RESETn, SS_VECn;
@@ -621,10 +621,10 @@ assign red = { igs023_color[14:10], igs023_color[14:12] };
 assign green = { igs023_color[9:5], igs023_color[9:7] };
 assign blue = { igs023_color[4:0], igs023_color[4:2] };
 
-wire [23:0] igs023_sdr_addr;
-assign sdr_scn0_addr = (cart_present && (igs023_sdr_addr >= cart_tile_base))
-                        ? CART_TILE_ROM_SDR_BASE[26:0] + { 3'd0, igs023_sdr_addr - cart_tile_base }
-                        : BIOS_TILE_ROM_SDR_BASE[26:0] + { 3'd0, igs023_sdr_addr };
+wire [23:0] igs023_sdr_tile_addr;
+assign sdr_tile_addr = (cart_present && (igs023_sdr_tile_addr >= cart_tile_base))
+                        ? CART_TILE_ROM_SDR_BASE[26:0] + { 3'd0, igs023_sdr_tile_addr - cart_tile_base }
+                        : BIOS_TILE_ROM_SDR_BASE[26:0] + { 3'd0, igs023_sdr_tile_addr };
 
 IGS023 #(.SS_IDX(SSIDX_IGS023)) igs023(
     .clk,
@@ -657,10 +657,10 @@ IGS023 #(.SS_IDX(SSIDX_IGS023)) igs023(
     .pal_we_l_n(igs023_pal_we_l_n),
  
     // ROM interface
-    .rom_address(igs023_sdr_addr),
-    .rom_data(sdr_scn0_q),
-    .rom_req(sdr_scn0_req),
-    .rom_ack(sdr_scn0_ack),
+    .tile_rom_address(igs023_sdr_tile_addr),
+    .tile_rom_data(sdr_tile_q),
+    .tile_rom_req(sdr_tile_req),
+    .tile_rom_ack(sdr_tile_ack),
 
     .irq6(irq6),
     .irq4(irq4),

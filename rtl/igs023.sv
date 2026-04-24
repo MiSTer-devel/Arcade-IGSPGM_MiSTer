@@ -30,10 +30,10 @@ module IGS023 #(parameter SS_IDX=-1) (
  
 
     // ROM interface
-    output reg [23:0] rom_address,
-    input      [31:0] rom_data,
-    output reg        rom_req,
-    input             rom_ack,
+    output reg [23:0] tile_rom_address,
+    input      [31:0] tile_rom_data,
+    output reg        tile_rom_req,
+    input             tile_rom_ack,
 
     output reg        irq6,
     output reg        irq4,
@@ -64,8 +64,8 @@ always_ff @(posedge clk) begin
     end
 end
 
-assign rom_address = fg_rom_master ? fg_rom_address : bg_rom_address;
-assign rom_req = fg_rom_master ? fg_rom_req : bg_rom_req;
+assign tile_rom_address = fg_rom_master ? fg_rom_address : bg_rom_address;
+assign tile_rom_req = fg_rom_master ? fg_rom_req : bg_rom_req;
 
 reg dtack_n;
 reg prev_cs_n;
@@ -98,7 +98,6 @@ reg [8:0] vcnt;
 reg [9:0] hcnt;
 
 // 0 is the top/right of the screen
-wire [10:0] logical_hcnt = { 1'b0, hcnt } - 11'd189;
 wire [10:0] logical_vcnt = { 2'b0, vcnt } - 11'd38;
 
 
@@ -134,12 +133,12 @@ always @(posedge clk) begin
     end
 end
 
-wire [10:0] bg_hofs = bg_x[10:0]; // + bg_rowscroll[10:0];
 wire [9:0] bg_color;
 wire [14:0] bg_vram_addr;
 wire        bg_vram_master;
 wire [23:0] bg_rom_address;
 wire        bg_rom_req;
+
 wire [8:0] fg_color;
 wire [14:0] fg_vram_addr;
 wire        fg_vram_master;
@@ -165,9 +164,9 @@ IGS023_FG fg(
     .vram_master(fg_vram_master),
     .rom_master(fg_rom_master),
     .rom_address(fg_rom_address),
-    .rom_data(rom_data),
+    .rom_data(tile_rom_data),
     .rom_req(fg_rom_req),
-    .rom_ack(rom_ack)
+    .rom_ack(tile_rom_ack)
 );
 
 IGS023_BG bg(
@@ -179,13 +178,17 @@ IGS023_BG bg(
     .y(bg_read_y),
     .screen_y(logical_vcnt[7:0]),
     .color_out(bg_color),
+    .scale_bits_x({zoom_table[1], zoom_table[0]}),
+    .scale_bits_y({zoom_table[1], zoom_table[0]}),
+    .zoom_mode_x(0),
+    .zoom_mode_y(0),
     .vram_addr(bg_vram_addr),
     .vram_din(vram_din),
     .vram_master(bg_vram_master),
     .rom_address(bg_rom_address),
-    .rom_data(rom_data),
+    .rom_data(tile_rom_data),
     .rom_req(bg_rom_req),
-    .rom_ack(rom_ack)
+    .rom_ack(tile_rom_ack)
 );
 
 reg [12:0] color_addr;
@@ -280,10 +283,21 @@ always @(posedge clk) begin
         if (~cpu_cs_n & prev_cs_n) begin // CS edge
             if (is_reg_access) begin
                 if (cpu_rw) begin
-                    cpu_dout <= ctrl[cpu_addr[15:12]];
+                    case(cpu_addr[15:12])
+                        1: cpu_dout <= zoom_table[cpu_addr[5:1]];
+                        default: cpu_dout <= ctrl[cpu_addr[15:12]];
+                    endcase
                 end else begin
-                    if (~cpu_uds_n) ctrl[cpu_addr[15:12]][15:8] <= cpu_din[15:8];
-                    if (~cpu_lds_n) ctrl[cpu_addr[15:12]][7:0]  <= cpu_din[7:0];
+                    case(cpu_addr[15:12])
+                        1: begin
+                            if (~cpu_uds_n) zoom_table[cpu_addr[5:1]][15:8] <= cpu_din[15:8];
+                            if (~cpu_lds_n) zoom_table[cpu_addr[5:1]][7:0]  <= cpu_din[7:0];
+                        end
+                        default: begin
+                            if (~cpu_uds_n) ctrl[cpu_addr[15:12]][15:8] <= cpu_din[15:8];
+                            if (~cpu_lds_n) ctrl[cpu_addr[15:12]][7:0]  <= cpu_din[7:0];
+                        end
+                    endcase
                 end
                 dtack_n <= 0;
             end else if (is_vram_access | is_pal_access) begin

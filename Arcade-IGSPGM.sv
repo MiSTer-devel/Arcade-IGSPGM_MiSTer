@@ -714,10 +714,10 @@ PGM pgm_inst(
     .sdr_cpu_req(sdr_cpu_req),
     .sdr_cpu_ack(sdr_cpu_ack),
 
-    .sdr_scn0_addr(sdr_ch1_addr),
-    .sdr_scn0_q(sdr_ch1_dout),
-    .sdr_scn0_req(sdr_ch1_req),
-    .sdr_scn0_ack(sdr_ch1_ack),
+    .sdr_tile_addr(sdr_ch1_addr),
+    .sdr_tile_q(sdr_ch1_dout),
+    .sdr_tile_req(sdr_ch1_req),
+    .sdr_tile_ack(sdr_ch1_ack),
 
     .sdr_audio_addr(sdr_ch2_addr),
     .sdr_audio_q(sdr_ch2_dout),
@@ -729,10 +729,10 @@ PGM pgm_inst(
     .cart_tile_base,
     .cart_music_base,
 
-    .sdr_scn_mux_addr(sdr_ch4_addr),
-    .sdr_scn_mux_q(sdr_ch4_dout),
-    .sdr_scn_mux_req(sdr_ch4_req),
-    .sdr_scn_mux_ack(sdr_ch4_ack),
+    .sdr_sprite_addr(sdr_ch4_addr),
+    .sdr_sprite_q(sdr_ch4_dout),
+    .sdr_sprite_req(sdr_ch4_req),
+    .sdr_sprite_ack(sdr_ch4_ack),
 
     .ddr(ddr_f2),
 

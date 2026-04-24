@@ -71,14 +71,14 @@ module sim_top(
     input             pause
 );
 
-wire [26:0] sdr_cpu_addr, sdr_scn0_addr, sdr_scn_mux_addr, sdr_audio_addr, sdr_rom_addr;
-wire sdr_cpu_req, sdr_scn0_req, sdr_scn_mux_req, sdr_audio_req, sdr_rom_req;
-reg  sdr_cpu_ack, sdr_scn0_ack, sdr_scn_mux_ack, sdr_audio_ack, sdr_rom_ack;
+wire [26:0] sdr_cpu_addr, sdr_tile_addr, sdr_sprite_addr, sdr_audio_addr, sdr_rom_addr;
+wire sdr_cpu_req, sdr_tile_req, sdr_sprite_req, sdr_audio_req, sdr_rom_req;
+reg  sdr_cpu_ack, sdr_tile_ack, sdr_sprite_ack, sdr_audio_ack, sdr_rom_ack;
 wire sdr_rom_rw;
 wire [1:0] sdr_rom_be;
 reg [63:0] sdr_cpu_q;
-reg [31:0] sdr_scn0_q;
-reg [63:0] sdr_scn_mux_q;
+reg [31:0] sdr_tile_q;
+reg [63:0] sdr_sprite_q;
 reg [63:0] sdr_audio_q;
 wire [15:0] sdr_rom_data;
 
@@ -240,15 +240,15 @@ PGM pgm_inst(
     .sdr_cpu_req(sdr_cpu_req),
     .sdr_cpu_ack(sdr_cpu_ack),
     
-    .sdr_scn0_addr(sdr_scn0_addr),
-    .sdr_scn0_q(sdr_scn0_q),
-    .sdr_scn0_req(sdr_scn0_req),
-    .sdr_scn0_ack(sdr_scn0_ack),
+    .sdr_tile_addr(sdr_tile_addr),
+    .sdr_tile_q(sdr_tile_q),
+    .sdr_tile_req(sdr_tile_req),
+    .sdr_tile_ack(sdr_tile_ack),
     
-    .sdr_scn_mux_addr(sdr_scn_mux_addr),
-    .sdr_scn_mux_q(sdr_scn_mux_q),
-    .sdr_scn_mux_req(sdr_scn_mux_req),
-    .sdr_scn_mux_ack(sdr_scn_mux_ack),
+    .sdr_sprite_addr(sdr_sprite_addr),
+    .sdr_sprite_q(sdr_sprite_q),
+    .sdr_sprite_req(sdr_sprite_req),
+    .sdr_sprite_ack(sdr_sprite_ack),
     
     .sdr_audio_addr(sdr_audio_addr),
     .sdr_audio_q(sdr_audio_q),
@@ -301,12 +301,12 @@ always_ff @(posedge clk) begin
                 sdr_cpu_q <= sdr_q;
             end
             1: begin
-                sdr_scn0_ack <= sdr_scn0_req;
-                sdr_scn0_q <= sdr_q[31:0];
+                sdr_tile_ack <= sdr_tile_req;
+                sdr_tile_q <= sdr_q[31:0];
             end
             2: begin
-                sdr_scn_mux_ack <= sdr_scn_mux_req;
-                sdr_scn_mux_q <= sdr_q;
+                sdr_sprite_ack <= sdr_sprite_req;
+                sdr_sprite_q <= sdr_q;
             end
             3: begin
                 sdr_audio_ack <= sdr_audio_req;
@@ -328,15 +328,15 @@ always_ff @(posedge clk) begin
             sdr_req <= ~sdr_req;
             sdr_active <= 1;
             sdr_active_ch <= 3;
-        end else if (sdr_scn0_req != sdr_scn0_ack) begin
+        end else if (sdr_tile_req != sdr_tile_ack) begin
             sdr_rw <= 1;
-            sdr_addr <= sdr_scn0_addr;
+            sdr_addr <= sdr_tile_addr;
             sdr_req <= ~sdr_req;
             sdr_active <= 1;
             sdr_active_ch <= 1;
-        end else if (sdr_scn_mux_req != sdr_scn_mux_ack) begin
+        end else if (sdr_sprite_req != sdr_sprite_ack) begin
             sdr_rw <= 1;
-            sdr_addr <= sdr_scn_mux_addr;
+            sdr_addr <= sdr_sprite_addr;
             sdr_req <= ~sdr_req;
             sdr_active <= 1;
             sdr_active_ch <= 2;

@@ -51,5 +51,6 @@ static inline int strcmp(const char *cs, const char *ct)
 
 void memset(void *ptr, int c, size_t len);
 void memcpy(void *a, const void *b, size_t len);
+int8_t sin_approx(uint8_t angle);
 
 #endif

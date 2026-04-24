@@ -53,6 +53,8 @@ static uint16_t print_string(const char *str)
         else
         {
             VRAM->fg[ofs].color = attr_color;
+            VRAM->fg[ofs].flipx = 0;
+            VRAM->fg[ofs].flipy = 0;
             VRAM->fg[ofs].code = (*str) + 8;
             ofs++;
             x++;
