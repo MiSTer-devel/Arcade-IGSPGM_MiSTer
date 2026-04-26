@@ -449,7 +449,9 @@ wire [15:0] IN1 = {
     joystick_p3[6:4], joystick_p3[0], joystick_p3[1], joystick_p3[2], joystick_p3[3], start[2]
 };
 
-wire [15:0] IN2 = { 16'd0 };
+
+// TODO - missing service, test and reset
+wire [15:0] IN2 = { 4'b0, joystick_p4[7], joystick_p3[7], joystick_p2[7], joystick_p1[7], 4'b0, coin[3:0] };
 wire [15:0] IN3 = { 8'b0, dswa };
 
 

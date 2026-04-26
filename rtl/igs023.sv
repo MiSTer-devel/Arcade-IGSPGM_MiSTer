@@ -405,7 +405,7 @@ always @(posedge clk) begin
             end else if (ssbus.addr < 48) begin
                 ctrl[ssbus.addr[3:0]] <= ssbus.data[15:0];
             end else begin
-                sprite_data[ssbus.addr - 48] <= ssbus.data[15:0];
+                //sprite_data[ssbus.addr - 48] <= ssbus.data[15:0];
             end
             ssbus.write_ack(SS_IDX);
         end else if (ssbus.read) begin
@@ -414,7 +414,7 @@ always @(posedge clk) begin
             end else if (ssbus.addr < 48) begin
                 ssbus.read_response(SS_IDX, { 48'b0, ctrl[ssbus.addr[3:0]] });
             end else begin
-                ssbus.read_response(SS_IDX, { 48'b0, sprite_data[ssbus.addr - 48] });
+                //ssbus.read_response(SS_IDX, { 48'b0, sprite_data[ssbus.addr - 48] });
             end
         end
     end

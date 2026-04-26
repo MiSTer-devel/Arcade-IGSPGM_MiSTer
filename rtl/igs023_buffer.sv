@@ -14,7 +14,7 @@ module IGS023_Buffer(
     input [8:0] column,
     input [4:0] palette,
     input       prio,
-    arom_offset_t arom_offset,
+    input       arom_offset_t arom_offset,
 
     input [7:0] line,
     output line_writable,

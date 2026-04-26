@@ -434,7 +434,7 @@ sdram sdram
     .init(~pll_locked),        // reset to initialize RAM
     .clk(clk_sdr),         // clock 64MHz
 
-    .doRefresh(core_hb | core_vb),
+    .doRefresh(~core_hb),
 
     .SDRAM_DQ,    // 16 bit bidirectional data bus
     .SDRAM_A,     // 13 bit multiplexed address bus
