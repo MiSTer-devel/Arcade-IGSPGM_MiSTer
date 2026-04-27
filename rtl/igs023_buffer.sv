@@ -22,14 +22,26 @@ module IGS023_Buffer(
     ddr_if.to_host ddr
 );
 
+localparam int NUM_LINE_BUFFERS = 8;
+localparam int LINE_BUF_BITS = $clog2(NUM_LINE_BUFFERS);
+
+initial begin
+    if (NUM_LINE_BUFFERS < 4) begin
+        $fatal(1, "IGS023_Buffer requires at least 4 line buffers");
+    end
+    if ((NUM_LINE_BUFFERS & (NUM_LINE_BUFFERS - 1)) != 0) begin
+        $fatal(1, "IGS023_Buffer requires NUM_LINE_BUFFERS to be a power of two");
+    end
+end
+
 
 typedef struct packed
 {
     arom_offset_t arom_offset;
-    logic           prio;
-    logic [4:0]     palette;
-    logic [8:0]     column;
-    logic [1:0]     line;
+    logic                 prio;
+    logic [4:0]           palette;
+    logic [8:0]           column;
+    logic [LINE_BUF_BITS-1:0] line;
 } write_entry_t;
 
 write_entry_t wq_in;
@@ -41,7 +53,7 @@ assign wq_in.palette = palette;
 assign wq_in.arom_offset = arom_offset;
 assign wq_in.prio = prio;
 assign wq_in.column = column;
-assign wq_in.line = line[1:0];
+assign wq_in.line = line[LINE_BUF_BITS-1:0];
 assign wq_cur = wq_fifo0;
 
 reg [12:0] write_queue_head = 0;
@@ -66,11 +78,11 @@ dualport_ram_unreg #(.WIDTH($bits(write_entry_t)), .WIDTHAD(13)) write_queue(
 
 
 reg [8:0] scan_column;
-reg [1:0] scan_buffer;
+reg [LINE_BUF_BITS-1:0] scan_buffer;
 
 always_ff @(posedge clk) begin
     if (frame_reset) begin
-        scan_buffer <= 2'b11;
+        scan_buffer <= NUM_LINE_BUFFERS - 1;
     end else if (next_line) begin
         scan_buffer <= scan_buffer + 1;
         scan_column <= 0;
@@ -242,21 +254,29 @@ always_ff @(posedge clk) begin
     end
 end
 
-wire [1:0] erase_buffer = scan_buffer - 2'b01;
-assign line_writable = (line[1:0] != scan_buffer) && (line[1:0] != erase_buffer);
+wire [LINE_BUF_BITS-1:0] erase_buffer = scan_buffer - 1'b1;
+assign line_writable = (line[LINE_BUF_BITS-1:0] != scan_buffer) && (line[LINE_BUF_BITS-1:0] != erase_buffer);
 
-logic [3:0] buf_wr;
-logic [8:0] buf_addr[4];
-logic [11:0] buf_data[4];
-logic [11:0] buf_q[4];
+logic [NUM_LINE_BUFFERS-1:0] buf_wr;
+logic [8:0] buf_addr[NUM_LINE_BUFFERS];
+logic [11:0] buf_data[NUM_LINE_BUFFERS];
+logic [11:0] buf_q[NUM_LINE_BUFFERS];
 
-singleport_ram #(.WIDTH(12), .WIDTHAD(9)) buf0( .clock(clk), .wren(buf_wr[0]), .address(buf_addr[0]), .data(buf_data[0]), .q(buf_q[0]));
-singleport_ram #(.WIDTH(12), .WIDTHAD(9)) buf1( .clock(clk), .wren(buf_wr[1]), .address(buf_addr[1]), .data(buf_data[1]), .q(buf_q[1]));
-singleport_ram #(.WIDTH(12), .WIDTHAD(9)) buf2( .clock(clk), .wren(buf_wr[2]), .address(buf_addr[2]), .data(buf_data[2]), .q(buf_q[2]));
-singleport_ram #(.WIDTH(12), .WIDTHAD(9)) buf3( .clock(clk), .wren(buf_wr[3]), .address(buf_addr[3]), .data(buf_data[3]), .q(buf_q[3]));
+genvar buf_i;
+generate
+    for (buf_i = 0; buf_i < NUM_LINE_BUFFERS; buf_i++) begin : gen_line_buf
+        singleport_ram #(.WIDTH(12), .WIDTHAD(9)) line_buf_inst(
+            .clock(clk),
+            .wren(buf_wr[buf_i]),
+            .address(buf_addr[buf_i]),
+            .data(buf_data[buf_i]),
+            .q(buf_q[buf_i])
+        );
+    end
+endgenerate
 
 always_comb begin
-    for( int i = 0; i < 4; i++ ) begin
+    for (int i = 0; i < NUM_LINE_BUFFERS; i++) begin
         buf_wr[i] = 0;
         buf_addr[i] = queue_valid ? wq_cur.column : 9'd0;
     end
@@ -269,9 +289,9 @@ always_comb begin
     scan_color = buf_q[scan_buffer];
 
     if (line_wr) begin
-        buf_addr[line_wr_entry.line[1:0]] = line_wr_entry.column;
-        buf_data[line_wr_entry.line[1:0]] = { 1'b1, line_wr_entry.prio, line_wr_entry.palette, line_wr_color };
-        buf_wr[line_wr_entry.line[1:0]] = 1;
+        buf_addr[line_wr_entry.line] = line_wr_entry.column;
+        buf_data[line_wr_entry.line] = { 1'b1, line_wr_entry.prio, line_wr_entry.palette, line_wr_color };
+        buf_wr[line_wr_entry.line] = 1;
     end
 end
 
