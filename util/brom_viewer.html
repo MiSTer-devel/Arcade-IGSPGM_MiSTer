@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PGM B-ROM Bitmask Viewer</title>
+<style>
+:root { color-scheme: dark; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #171717;
+  color: #e7e7e7;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+  background: #202020;
+}
+h1 { margin: 0 0 4px; font-size: 20px; }
+header p { margin: 0; color: #b8b8b8; font-size: 13px; }
+main {
+  display: grid;
+  grid-template-columns: 440px minmax(0, 1fr);
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+aside {
+  border-right: 1px solid #333;
+  background: #1d1d1d;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+section { padding: 12px; }
+.block-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px 12px;
+}
+.controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+}
+.controls label { color: #cfcfcf; font-size: 13px; }
+.controls input,
+.controls select,
+.controls button {
+  color: #f0f0f0;
+  background: #292929;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 5px 7px;
+}
+.controls input[type="file"] { width: 100%; box-sizing: border-box; }
+.controls input[type="checkbox"] { justify-self: start; }
+.controls button { cursor: pointer; }
+.controls button:hover { background: #333; }
+.row { display: flex; gap: 6px; align-items: center; }
+.row input[type="number"] { width: 90px; }
+.status {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #c8c8c8;
+  background: #151515;
+  border: 1px solid #333;
+  padding: 8px;
+  margin-top: 10px;
+  border-radius: 4px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+th, td {
+  border-bottom: 1px solid #333;
+  padding: 4px 5px;
+  text-align: right;
+  white-space: nowrap;
+}
+th { position: sticky; top: 0; background: #242424; z-index: 1; }
+tr { cursor: pointer; }
+tbody tr:hover { background: #282828; }
+tbody tr.selected { background: #3a4a68; }
+.viewer {
+  overflow: auto;
+  background: #101010;
+  position: relative;
+  min-height: 0;
+}
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid #333;
+  background: #202020;
+  font-size: 13px;
+}
+.toolbar code { color: #a9d5ff; }
+.toolbar input[type="number"] { width: 90px; }
+.canvas-wrap { padding: 16px; }
+canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #303030;
+  border: 1px solid #555;
+}
+.small { color: #aaa; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PGM B-ROM Bitmask Viewer</h1>
+  <p>Load one or more sprite bitmask ROM files, parse sprite blocks, then view the selected block as a 1-bit image. Files are concatenated in selection order.</p>
+</header>
+<main>
+  <aside>
+    <section>
+      <div class="controls">
+        <label for="fileInput">B-ROM file(s)</label>
+        <input id="fileInput" type="file" multiple>
+
+        <label for="tolerance">Tolerance</label>
+        <input id="tolerance" type="number" min="0" value="10">
+
+        <label for="minData">Min data words</label>
+        <input id="minData" type="number" min="1" value="1">
+
+        <label for="maxData">Max data words</label>
+        <input id="maxData" type="number" min="1" value="5000">
+
+        <label></label>
+        <button id="parseBtn">Parse</button>
+      </div>
+      <div id="status" class="status">No file loaded.</div>
+    </section>
+
+    <section class="block-list">
+      <table>
+        <thead>
+          <tr>
+            <th>Blk</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Words</th>
+            <th>Zeros</th>
+            <th>Off</th>
+          </tr>
+        </thead>
+        <tbody id="blockTable"></tbody>
+      </table>
+    </section>
+  </aside>
+
+  <div class="viewer">
+    <div class="toolbar">
+      <span>Block: <code id="selectedBlock">none</code></span>
+      <button id="prevBlock" title="Previous block (ArrowUp / PageUp)">Prev</button>
+      <label class="row">Go <input id="blockIndex" type="number" min="0" value="0"></label>
+      <button id="nextBlock" title="Next block (ArrowDown / PageDown)">Next</button>
+      <label class="row">Width
+        <button id="widthMinus" title="minus 16">-16</button>
+        <input id="width" type="number" min="16" step="16" value="128">
+        <button id="widthPlus" title="plus 16">+16</button>
+      </label>
+      <label>Bit order
+        <select id="bitOrder">
+          <option value="lsb">LSB first</option>
+          <option value="msb">MSB first</option>
+        </select>
+      </label>
+      <label>Zero bits
+        <select id="zeroMode">
+          <option value="black">black</option>
+          <option value="white">white</option>
+          <option value="transparent">transparent checker</option>
+        </select>
+      </label>
+      <label class="row">Zoom <input id="zoom" type="number" min="1" max="32" value="4"></label>
+      <button id="downloadPng">Download PNG</button>
+      <span class="small" id="imageInfo"></span>
+      <span class="small">Use ↑/↓ or PageUp/PageDown to browse blocks. Use ←/→ to change width.</span>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="canvas" width="1" height="1"></canvas>
+    </div>
+  </div>
+</main>
+
+<script>
+'use strict';
+
+const fileInput = document.getElementById('fileInput');
+const parseBtn = document.getElementById('parseBtn');
+const statusEl = document.getElementById('status');
+const blockTable = document.getElementById('blockTable');
+const selectedBlockEl = document.getElementById('selectedBlock');
+const prevBlock = document.getElementById('prevBlock');
+const nextBlock = document.getElementById('nextBlock');
+const blockIndexEl = document.getElementById('blockIndex');
+const widthEl = document.getElementById('width');
+const widthMinus = document.getElementById('widthMinus');
+const widthPlus = document.getElementById('widthPlus');
+const bitOrderEl = document.getElementById('bitOrder');
+const zeroModeEl = document.getElementById('zeroMode');
+const zoomEl = document.getElementById('zoom');
+const imageInfoEl = document.getElementById('imageInfo');
+const downloadPng = document.getElementById('downloadPng');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let words = [];
+let blocks = [];
+let selectedIndex = -1;
+let loadedBytes = 0;
+let blockWidths = [];
+let loadedNames = [];
+
+function hex(value, digits) {
+  return '0x' + (value >>> 0).toString(16).padStart(digits, '0');
+}
+
+function zeroBits(w) {
+  let ones = 0;
+  w &= 0xffff;
+  while (w) {
+    w &= w - 1;
+    ones++;
+  }
+  return 16 - ones;
+}
+
+function parseBlocks(words, tolerance = 10, minDataWords = 1, maxDataWords = 5000) {
+  const parsed = [];
+  const failures = [];
+  let pos = 0;
+  const N = words.length;
+
+  while (pos + 3 < N) {
+    const startLow = words[pos];
+    const startHigh = words[pos + 1];
+    const startAddr = ((startHigh << 16) | startLow) >>> 0;
+    const dataStart = pos + 2;
+    let zeros = 0;
+    let found = false;
+    const limit = Math.min(dataStart + maxDataWords, N - 2);
+
+    for (let i = dataStart; i < limit; i++) {
+      zeros += zeroBits(words[i]);
+      const dataWords = i - dataStart + 1;
+      if (dataWords < minDataWords) continue;
+
+      const expectedEnd = (startAddr + Math.floor((zeros * 4 + 2) / 3)) >>> 0;
+      const candidateEnd = ((words[i + 1] << 16) | words[i + 2]) >>> 0;
+      if (Math.abs(candidateEnd - expectedEnd) > tolerance) continue;
+
+      if (i + 4 < N) {
+        const nextStart = ((words[i + 4] << 16) | words[i + 3]) >>> 0;
+        if (Math.abs(nextStart - candidateEnd) > tolerance) continue;
+      }
+
+      parsed.push({
+        start_addr: startAddr,
+        end_addr: candidateEnd,
+        data_words: dataWords,
+        zero_bits: zeros,
+        file_offset: pos * 2,
+        start_word: pos,
+        data_start: dataStart,
+        data_end: i,
+        end_word: i + 1,
+      });
+      pos = i + 3;
+      found = true;
+      break;
+    }
+
+    if (!found) {
+      failures.push({pos, start_addr: startAddr});
+      pos += 1;
+    }
+  }
+
+  return {blocks: parsed, failures};
+}
+
+async function loadFiles(files) {
+  const buffers = [];
+  let total = 0;
+  loadedNames = [];
+  for (const file of files) {
+    const buf = await file.arrayBuffer();
+    buffers.push(new Uint8Array(buf));
+    total += buf.byteLength;
+    loadedNames.push(file.name);
+  }
+  const data = new Uint8Array(total);
+  let off = 0;
+  for (const b of buffers) {
+    data.set(b, off);
+    off += b.length;
+  }
+  loadedBytes = data.length;
+  const wordCount = Math.floor(data.length / 2);
+  const out = new Array(wordCount);
+  for (let i = 0; i < wordCount; i++) {
+    out[i] = data[i * 2] | (data[i * 2 + 1] << 8);
+  }
+  return out;
+}
+
+function renderBlockTable() {
+  blockTable.textContent = '';
+  const frag = document.createDocumentFragment();
+  blocks.forEach((b, i) => {
+    const tr = document.createElement('tr');
+    tr.dataset.index = String(i);
+    if (i === selectedIndex) tr.classList.add('selected');
+    tr.innerHTML = `
+      <td>${i}</td>
+      <td>${hex(b.start_addr, 8)}</td>
+      <td>${hex(b.end_addr, 8)}</td>
+      <td>${b.data_words}</td>
+      <td>${b.zero_bits}</td>
+      <td>${hex(b.file_offset, 8)}</td>
+    `;
+    tr.addEventListener('click', () => selectBlock(i, false));
+    frag.appendChild(tr);
+  });
+  blockTable.appendChild(frag);
+  updateSelectedRow(false);
+}
+
+function updateSelectedRow(scrollIntoView) {
+  blockTable.querySelectorAll('tr.selected').forEach(tr => tr.classList.remove('selected'));
+  if (selectedIndex >= 0) {
+    const tr = blockTable.querySelector(`tr[data-index="${selectedIndex}"]`);
+    if (tr) {
+      tr.classList.add('selected');
+      if (scrollIntoView) tr.scrollIntoView({block: 'nearest'});
+    }
+  }
+}
+
+function normalizeWidth() {
+  let width = Number(widthEl.value) || 16;
+  width = Math.max(16, Math.round(width / 16) * 16);
+  widthEl.value = width;
+  return width;
+}
+
+function selectBlock(index, scrollIntoView = true) {
+  if (!blocks.length) {
+    selectedIndex = -1;
+  } else {
+    selectedIndex = Math.max(0, Math.min(blocks.length - 1, index));
+    if (blockWidths[selectedIndex] == null) {
+      blockWidths[selectedIndex] = normalizeWidth();
+    }
+    widthEl.value = blockWidths[selectedIndex];
+  }
+  updateSelectedRow(scrollIntoView);
+  renderSelectedBlock();
+}
+
+function stepBlock(delta) {
+  if (!blocks.length) return;
+  selectBlock(selectedIndex + delta, true);
+}
+
+function setCurrentWidth(width) {
+  width = Math.max(16, Math.round(width / 16) * 16);
+  widthEl.value = width;
+  if (selectedIndex >= 0) blockWidths[selectedIndex] = width;
+  renderSelectedBlock();
+}
+
+function stepWidth(delta) {
+  setCurrentWidth(normalizeWidth() + delta);
+}
+
+function renderSelectedBlock() {
+  const width = normalizeWidth();
+  if (selectedIndex >= 0) blockWidths[selectedIndex] = width;
+  const zoom = Math.max(1, Number(zoomEl.value) || 1);
+  canvas.style.width = `${width * zoom}px`;
+
+  if (selectedIndex < 0 || selectedIndex >= blocks.length) {
+    selectedBlockEl.textContent = 'none';
+    blockIndexEl.value = 0;
+    blockIndexEl.max = 0;
+    imageInfoEl.textContent = '';
+    canvas.width = 1;
+    canvas.height = 1;
+    ctx.clearRect(0, 0, 1, 1);
+    return;
+  }
+
+  const b = blocks[selectedIndex];
+  const totalBits = b.data_words * 16;
+  const height = Math.ceil(totalBits / width);
+  canvas.width = width;
+  canvas.height = height;
+  canvas.style.height = `${height * zoom}px`;
+
+  const image = ctx.createImageData(width, height);
+  const bitOrder = bitOrderEl.value;
+  const zeroMode = zeroModeEl.value;
+
+  for (let bitIndex = 0; bitIndex < width * height; bitIndex++) {
+    const wordIndex = Math.floor(bitIndex / 16);
+    const bitInWord = bitIndex & 15;
+    const p = bitIndex * 4;
+
+    let r = 48, g = 48, bl = 48, a = 255;
+    if (wordIndex < b.data_words) {
+      const w = words[b.data_start + wordIndex];
+      const bitPos = bitOrder === 'lsb' ? bitInWord : (15 - bitInWord);
+      const bit = (w >> bitPos) & 1;
+      const x = bitIndex % width;
+      const y = Math.floor(bitIndex / width);
+      const checker = ((x >> 3) ^ (y >> 3)) & 1;
+
+      if (bit === 0) {
+        if (zeroMode === 'white') {
+          r = g = bl = 255;
+        } else if (zeroMode === 'transparent') {
+          r = g = bl = checker ? 86 : 58;
+        } else {
+          r = g = bl = 0;
+        }
+      } else {
+        if (zeroMode === 'white') {
+          r = g = bl = 0;
+        } else {
+          r = g = bl = 255;
+        }
+      }
+    }
+
+    image.data[p + 0] = r;
+    image.data[p + 1] = g;
+    image.data[p + 2] = bl;
+    image.data[p + 3] = a;
+  }
+
+  ctx.putImageData(image, 0, 0);
+  selectedBlockEl.textContent = `${selectedIndex} ${hex(b.start_addr, 8)}-${hex(b.end_addr, 8)}`;
+  blockIndexEl.max = Math.max(0, blocks.length - 1);
+  blockIndexEl.value = selectedIndex;
+  imageInfoEl.textContent = `${width} x ${height}, ${b.data_words} words, ${b.zero_bits} zero bits`;
+}
+
+async function parseSelectedFiles() {
+  if (!fileInput.files.length) {
+    statusEl.textContent = 'Choose one or more B-ROM files first.';
+    return;
+  }
+
+  statusEl.textContent = 'Loading...';
+  words = await loadFiles(fileInput.files);
+  const tolerance = Number(document.getElementById('tolerance').value) || 10;
+  const minData = Number(document.getElementById('minData').value) || 1;
+  const maxData = Number(document.getElementById('maxData').value) || 5000;
+  const result = parseBlocks(words, tolerance, minData, maxData);
+  blocks = result.blocks;
+  blockWidths = new Array(blocks.length);
+  selectedIndex = blocks.length ? 0 : -1;
+
+  let msg = '';
+  msg += loadedNames.length === 1 ? `File: ${loadedNames[0]}\n` : `Files: ${loadedNames.join(', ')}\n`;
+  msg += `${loadedBytes} bytes, ${words.length} words\n`;
+  msg += `Blocks: ${blocks.length}\n`;
+  msg += `Skipped positions: ${result.failures.length}`;
+  if (blocks.length) {
+    const last = blocks[blocks.length - 1];
+    const coverage = (last.end_word + 2) * 2;
+    msg += `\nAddress range: ${hex(blocks[0].start_addr, 8)} - ${hex(last.end_addr, 8)}`;
+    msg += `\nFile coverage: ${coverage} bytes (${(coverage * 100 / loadedBytes).toFixed(1)}%)`;
+  }
+  statusEl.textContent = msg;
+
+  renderBlockTable();
+  selectBlock(selectedIndex, true);
+}
+
+parseBtn.addEventListener('click', () => parseSelectedFiles().catch(err => {
+  console.error(err);
+  statusEl.textContent = `Error: ${err.message || err}`;
+}));
+
+prevBlock.addEventListener('click', () => stepBlock(-1));
+nextBlock.addEventListener('click', () => stepBlock(1));
+blockIndexEl.addEventListener('change', () => selectBlock(Number(blockIndexEl.value) || 0, true));
+document.addEventListener('keydown', (ev) => {
+  const tag = ev.target && ev.target.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (ev.key === 'ArrowUp') { ev.preventDefault(); stepBlock(-1); }
+  else if (ev.key === 'ArrowDown') { ev.preventDefault(); stepBlock(1); }
+  else if (ev.key === 'ArrowLeft') { ev.preventDefault(); stepWidth(-16); }
+  else if (ev.key === 'ArrowRight') { ev.preventDefault(); stepWidth(16); }
+  else if (ev.key === 'PageUp') { ev.preventDefault(); stepBlock(-10); }
+  else if (ev.key === 'PageDown') { ev.preventDefault(); stepBlock(10); }
+});
+
+widthEl.addEventListener('change', () => setCurrentWidth(Number(widthEl.value) || 16));
+bitOrderEl.addEventListener('change', renderSelectedBlock);
+zeroModeEl.addEventListener('change', renderSelectedBlock);
+zoomEl.addEventListener('change', renderSelectedBlock);
+widthMinus.addEventListener('click', () => stepWidth(-16));
+widthPlus.addEventListener('click', () => stepWidth(16));
+downloadPng.addEventListener('click', () => {
+  if (selectedIndex < 0) return;
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = `brom_block_${selectedIndex}_w${normalizeWidth()}.png`;
+  a.click();
+});
+
+renderSelectedBlock();
+</script>
+</body>
+</html>
