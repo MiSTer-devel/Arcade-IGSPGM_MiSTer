@@ -91,6 +91,8 @@ wire is_pal_access = cpu_addr[21:20] == 2'b10;
 
 reg ram_pending = 0;
 reg [1:0] ram_access = 0;
+wire vram_cpu_bus_free = ~fg_real_vram_master & ~bg_vram_master;
+reg vram_cpu_bus_free_d;
 
 reg [15:0] sprite_data[256 * 8];
 reg [15:0] zoom_table[32];
@@ -269,12 +271,16 @@ always_comb begin
     pal_we_l_n = 1;
     pal_we_u_n = 1;
 
-    if (~fg_real_vram_master & ~bg_vram_master) begin
+    if (vram_cpu_bus_free) begin
         if (is_vram_access && ram_access == 2'd2) begin
-            vram_addr = {cpu_addr[14:1], 1'b0};
+            // VRAM stores words little-endian for the renderer.  CPU writes
+            // therefore go low-byte/even then high-byte/odd, but CPU reads
+            // must fetch high-byte/odd first so a 68000 word read matches the
+            // value previously written.
+            vram_addr = {cpu_addr[14:1], cpu_rw};
             vram_we_n = cpu_rw;
         end else if (is_vram_access && ram_access == 2'd1) begin
-            vram_addr = {cpu_addr[14:1], 1'b1};
+            vram_addr = {cpu_addr[14:1], ~cpu_rw};
             vram_we_n = cpu_rw;
         end else if (is_pal_access && |ram_access) begin
             pal_addr = cpu_addr[12:0];
@@ -302,6 +308,7 @@ always @(posedge clk) begin
         irq4 <= 0;
     end begin
         dma_start <= 0;
+        vram_cpu_bus_free_d <= reset ? 1'b0 : vram_cpu_bus_free;
         
         sprite_frame_reset <= 0;
         sprite_next_line <= 0;
@@ -374,7 +381,7 @@ always @(posedge clk) begin
         end
 
         if (ce_pixel) begin
-            if (~fg_real_vram_master & ~bg_vram_master) begin
+            if (vram_cpu_bus_free && vram_cpu_bus_free_d) begin
                 if (is_vram_access) begin
                     if (ram_access == 2'd2) begin
                         cpu_dout[15:8] <= vram_din;
@@ -393,7 +400,7 @@ always @(posedge clk) begin
                 end
             end
 
-            if (ram_pending & ~fg_real_vram_master & ~bg_vram_master) begin
+            if (ram_pending & vram_cpu_bus_free) begin
                 ram_access <= 2'd2;
                 ram_pending <= 0;
             end

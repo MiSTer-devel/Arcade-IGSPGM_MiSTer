@@ -5,6 +5,8 @@ MEMORY
 }
 
 STACK_SIZE = 0x2000;
+TEST_STATUS_ORIGIN = ORIGIN(ram) + LENGTH(ram) - 0x1000;
+TEST_STATUS_SIZE = 0x1000;
 
 SECTIONS
 {
@@ -51,6 +53,18 @@ SECTIONS
         . = ALIGN(2);
         _estack = .;
     } > ram
+
+    .test_status TEST_STATUS_ORIGIN (NOLOAD):
+    {
+        . = ALIGN(2);
+        _stest_status = .;
+        KEEP(*(.test_status .test_status.*));
+        . = ALIGN(2);
+        _etest_status = .;
+    } > ram
+
+    ASSERT(_estack <= TEST_STATUS_ORIGIN, "test ROM stack overlaps .test_status")
+    ASSERT(SIZEOF(.test_status) <= TEST_STATUS_SIZE, ".test_status exceeds reserved work RAM area")
 
     . = ALIGN(2);
     _end = . ;
