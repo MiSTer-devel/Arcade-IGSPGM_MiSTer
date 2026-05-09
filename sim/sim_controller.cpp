@@ -768,7 +768,7 @@ ControllerResult<Ics2115DebugState> SimController::GetIcs2115DebugState() const
     result.mHostRdN = root->sim_top__DOT__pgm_inst__DOT__ics2115_rd_n != 0;
     result.mHostWrN = root->sim_top__DOT__pgm_inst__DOT__ics2115_wr_n != 0;
     result.mHostIrq = result.mIrqOn;
-    result.mHostReady = root->sim_top__DOT__pgm_inst__DOT__ics2115__DOT__host_write_collision == 0;
+    result.mHostReady = root->sim_top__DOT__pgm_inst__DOT__ics2115__DOT__host_voice_wr_pending == 0;
     result.mResetN = root->sim_top__DOT__pgm_inst__DOT__z80_reset_n != 0;
     result.mRomDataValid = root->sim_top__DOT__pgm_inst__DOT__ics2115_data_valid != 0;
     result.mRomAddr = root->sim_top__DOT__pgm_inst__DOT__ics2115_rom_addr;

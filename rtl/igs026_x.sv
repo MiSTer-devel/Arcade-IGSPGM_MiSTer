@@ -79,7 +79,7 @@ always_comb begin
     aram_addr = z80_bus_disable ? cpu_addr[15:1] : z80_addr[15:1];
     aram_dout = z80_bus_disable ? cpu_din : { z80_din, z80_din };
 
-    z80_wait_n = !z80_ics2115_access || ics2115_ready;
+    z80_wait_n = 1'b1;
 
     z80_dout = z80_addr[0] ? aram_din[7:0] : aram_din[15:8];
 

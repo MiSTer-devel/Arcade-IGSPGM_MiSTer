@@ -33,10 +33,10 @@
 #define WAVE_ENTRY_SIZE 12
 #define DEFAULT_WAVE_COUNT (sizeof(default_z80_wave_table_blob) / WAVE_ENTRY_SIZE)
 #define REPEAT_WAVE_INDEX 5
-#define REPEAT_INTERVAL_FRAMES 30
-#define REPEAT_COUNT 64
-#define START_DELAY_FRAMES 60
-#define TAIL_FRAMES 120
+#define REPEAT_INTERVAL_FRAMES 3
+#define REPEAT_COUNT 38
+#define START_DELAY_FRAMES 1
+#define TAIL_FRAMES 20
 
 typedef struct
 {
@@ -362,7 +362,15 @@ static void update(void)
 
     if (initialized && !verify_errors && !done && !failed)
     {
-        if (frame_count >= next_play_frame)
+        if (commands_sent >= REPEAT_COUNT)
+        {
+            phase = 7;
+            if (frame_count >= last_play_frame + TAIL_FRAMES)
+            {
+                done = 1;
+            }
+        }
+        else if (frame_count >= next_play_frame)
         {
             play_wave(REPEAT_WAVE_INDEX, 0x40);
             if (commands_sent == 1)
@@ -370,16 +378,7 @@ static void update(void)
                 first_play_frame = frame_count;
             }
             last_play_frame = frame_count;
-
-            if (commands_sent >= REPEAT_COUNT)
-            {
-                done = 1;
-                phase = 7;
-            }
-            else
-            {
-                next_play_frame += REPEAT_INTERVAL_FRAMES;
-            }
+            next_play_frame += REPEAT_INTERVAL_FRAMES;
         }
     }
 

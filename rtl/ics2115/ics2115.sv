@@ -168,6 +168,15 @@ module ics2115
     logic [4:0]  seq_wr_idx;        // which voice to write back
     voice_state_t seq_wr_data;      // data to write back
 
+    // Host writes to per-voice/oscillator registers are buffered and committed
+    // only when the selected voice is not in the sample sequencer pipeline.
+    logic [4:0]  host_voice_wr_voice;
+    logic [7:0]  host_voice_wr_reg;
+    logic [15:0] host_voice_wr_value;
+    logic [1:0]  host_voice_wr_pending; // bit 1 = high byte, bit 0 = low byte
+    logic        host_voice_wr_apply;
+    voice_state_t host_voice_wr_data;
+
     // Oscillator instance signals
     logic        osc_start;
     logic        osc_done;
@@ -529,7 +538,7 @@ module ics2115
             2'd0: begin
                 // Port 0: IRQ status — MAME read() case 0
                 host_dout = 8'd0;
-                host_dout[6] = host_write_collision;  // bit 6: voice busy (sequencer collision)
+                host_dout[6] = |host_voice_wr_pending;  // bit 6: buffered voice write pending
                 if (irq_on) begin
                     host_dout[7] = 1'b1;  // bit 7: any IRQ active
                     if (irq_enabled != 8'd0 && (irq_pending & 8'h03) != 8'h00)
@@ -545,18 +554,81 @@ module ics2115
         endcase
     end
 
-    // Host bus busy when an active write targets a per-voice register for the
-    // voice currently being processed by the sequencer FSM.  Only applies when
-    // CS is asserted and the host is writing to port 2 or 3 (the data ports).
-    wire voice_busy = (seq_state == SEQ_LOAD || seq_state == SEQ_WAIT || seq_state == SEQ_STORE);
-    wire host_write_collision = voice_busy
-                             && (osc_select == seq_voice_idx)
-                             && (reg_select < 8'h20)
-                             && ~host_cs_n
-                             && ~host_wr_n
-                             && (host_addr == 2'd2 || host_addr == 2'd3);
-    assign host_ready = !host_write_collision;
+    assign host_ready = !(|host_voice_wr_pending);
     // host_irq driven by recalc_irq logic above
+
+    function automatic voice_state_t apply_voice_reg_byte(
+        input voice_state_t voice,
+        input logic [7:0] reg_addr,
+        input logic [7:0] data,
+        input logic high_byte
+    );
+        voice_state_t result;
+        result = voice;
+        if (high_byte) begin
+            case (reg_addr[4:0])
+                5'h00: result.osc_conf[6:0]  = data[6:0];
+                5'h01: result.osc_fc[15:8]   = data[7:0];
+                5'h02: result.osc_start[28:21] = data[7:0];
+                5'h03: result.osc_start[12:5]  = data[7:0];
+                5'h04: result.osc_end[28:21]   = data[7:0];
+                5'h05: result.osc_end[12:5]    = data[7:0];
+                5'h06: result.vol_incr         = data[7:0];
+                5'h09: result.vol_acc[25:18]   = data[7:0];
+                5'h0A: result.osc_acc[28:21]   = data[7:0];
+                5'h0B: result.osc_acc[12:5]    = data[7:0];
+                5'h0C: result.vol_pan          = data[7:0];
+                5'h0D: result.vol_ctrl[6:0]    = data[6:0];
+                5'h10: begin
+                    result.osc_ctl = data[7:0];
+                    if (data[7:0] == 8'h00) begin
+                        result.state_on = 1'b1;
+                        result.state_ramp = MAX_RAMP;
+                        result.osc_conf[OSC_STOP] = 1'b0;
+                    end else if (data[7:0] == 8'h0F) begin
+                        result.state_on = 1'b0;
+                        result.osc_conf[OSC_STOP] = 1'b1;
+                        result.vol_ctrl[VOL_STOP] = 1'b1;
+                    end
+                end
+                5'h11: result.osc_saddr = data[7:0];
+                default: ;
+            endcase
+        end else begin
+            case (reg_addr[4:0])
+                5'h01: result.osc_fc[7:0]       = {data[7:1], 1'b0};
+                5'h02: result.osc_start[20:13]  = data[7:0];
+                5'h04: result.osc_end[20:13]    = data[7:0];
+                5'h07: result.vol_start         = {data[7:0], 18'd0};
+                5'h08: result.vol_end           = {data[7:0], 18'd0};
+                5'h09: begin
+                    result.vol_acc[17:10] = data[7:0];
+                    result.vol_acc[9:0]   = 10'd0;
+                end
+                5'h0A: result.osc_acc[20:13]    = data[7:0];
+                5'h0B: result.osc_acc[4:0]      = data[7:3];
+                default: ;
+            endcase
+        end
+        return result;
+    endfunction
+
+    wire host_voice_wr_busy = (seq_state == SEQ_LOAD || seq_state == SEQ_WAIT || seq_state == SEQ_STORE)
+                           && (host_voice_wr_voice == seq_voice_idx);
+    assign host_voice_wr_apply = |host_voice_wr_pending
+                              && !host_voice_wr_busy
+                              && !(seq_voice_wr && seq_wr_idx == host_voice_wr_voice);
+
+    always_comb begin
+        host_voice_wr_data = voice_regs[host_voice_wr_voice];
+        if (host_voice_wr_pending[1])
+            host_voice_wr_data = apply_voice_reg_byte(host_voice_wr_data, host_voice_wr_reg, host_voice_wr_value[15:8], 1'b1);
+        if (host_voice_wr_pending[0])
+            host_voice_wr_data = apply_voice_reg_byte(host_voice_wr_data, host_voice_wr_reg, host_voice_wr_value[7:0], 1'b0);
+    end
+
+    wire host_voice_wr_same_target = (host_voice_wr_voice == osc_select) && (host_voice_wr_reg == reg_select);
+    wire host_voice_wr_can_buffer = !(|host_voice_wr_pending) || host_voice_wr_same_target || host_voice_wr_apply;
 
     // =========================================================================
     // Unified voice_regs + global register write block
@@ -577,6 +649,10 @@ module ics2115
             irqv_clear_voice <= 5'd0;
             timer_irq_clear[0] <= 1'b0;
             timer_irq_clear[1] <= 1'b0;
+            host_voice_wr_voice <= 5'd0;
+            host_voice_wr_reg <= 8'd0;
+            host_voice_wr_value <= 16'd0;
+            host_voice_wr_pending <= 2'b00;
             for (int i = 0; i < 2; i++) begin
                 timer_preset[i]   <= 8'd0;
                 timer_scale[i]    <= 8'd0;
@@ -609,6 +685,12 @@ module ics2115
                 voice_regs[seq_wr_idx] <= seq_wr_data;
             end
 
+            // ── Buffered host voice-register write commit ──
+            if (host_voice_wr_apply) begin
+                voice_regs[host_voice_wr_voice] <= host_voice_wr_data;
+                host_voice_wr_pending <= 2'b00;
+            end
+
             // ── Host bus port writes ──
             if (~host_wr_n & ~host_cs_n) begin
                 case (host_addr)
@@ -616,39 +698,19 @@ module ics2115
                         reg_select <= host_din[7:0];
                     end
                     2'd3: begin
-                        // High-byte write — per-voice and global registers
+                        // High-byte write — per-voice writes are buffered, globals are direct.
                         if (reg_select < 8'h20) begin
                             case (reg_select[4:0])
-                                5'h00: voice_regs[osc_select].osc_conf[6:0]  <= host_din[6:0];
-                                5'h01: voice_regs[osc_select].osc_fc[15:8]   <= host_din[7:0];
-                                5'h02: voice_regs[osc_select].osc_start[28:21] <= host_din[7:0];
-                                5'h03: voice_regs[osc_select].osc_start[12:5]  <= host_din[7:0];
-                                5'h04: voice_regs[osc_select].osc_end[28:21]   <= host_din[7:0];
-                                5'h05: voice_regs[osc_select].osc_end[12:5]    <= host_din[7:0];
-                                5'h06: voice_regs[osc_select].vol_incr         <= host_din[7:0];
-                                5'h09: voice_regs[osc_select].vol_acc[25:18]   <= host_din[7:0];
-                                5'h0A: voice_regs[osc_select].osc_acc[28:21]   <= host_din[7:0];
-                                5'h0B: voice_regs[osc_select].osc_acc[12:5]    <= host_din[7:0];
-                                5'h0C: voice_regs[osc_select].vol_pan          <= host_din[7:0];
-                                5'h0D: voice_regs[osc_select].vol_ctrl[6:0]    <= host_din[6:0];
-                                5'h0E: active_osc                              <= host_din[4:0];
-                                5'h10: begin
-                                    voice_regs[osc_select].osc_ctl <= host_din[7:0];
-                                    if (host_din[7:0] == 8'h00) begin
-                                        // Keyon
-                                        voice_regs[osc_select].state_on        <= 1'b1;
-                                        voice_regs[osc_select].state_ramp      <= MAX_RAMP;
-                                        voice_regs[osc_select].osc_conf[OSC_STOP] <= 1'b0;
-                                    end else if (host_din[7:0] == 8'h0F) begin
-                                        // Keyoff
-                                        voice_regs[osc_select].state_on        <= 1'b0;
-                                        voice_regs[osc_select].osc_conf[OSC_STOP] <= 1'b1;
-                                        voice_regs[osc_select].vol_ctrl[VOL_STOP] <= 1'b1;
+                                5'h0E: active_osc <= host_din[4:0];
+                                5'h12: vmode      <= host_din[7:0];
+                                default: begin
+                                    if (host_voice_wr_can_buffer) begin
+                                        host_voice_wr_voice <= osc_select;
+                                        host_voice_wr_reg <= reg_select;
+                                        host_voice_wr_value[15:8] <= host_din[7:0];
+                                        host_voice_wr_pending[1] <= 1'b1;
                                     end
                                 end
-                                5'h11: voice_regs[osc_select].osc_saddr        <= host_din[7:0];
-                                5'h12: vmode                                    <= host_din[7:0];
-                                default: ;
                             endcase
                         end else begin
                             case (reg_select)
@@ -658,21 +720,18 @@ module ics2115
                         end
                     end
                     2'd2: begin
-                        // Low-byte write — per-voice registers that need low byte
+                        // Low-byte write — per-voice writes are buffered, globals are direct.
                         if (reg_select < 8'h20) begin
                             case (reg_select[4:0])
-                                5'h01: voice_regs[osc_select].osc_fc[7:0]      <= {host_din[7:1], 1'b0};
-                                5'h02: voice_regs[osc_select].osc_start[20:13]  <= host_din[7:0];
-                                5'h04: voice_regs[osc_select].osc_end[20:13]    <= host_din[7:0];
-                                5'h07: voice_regs[osc_select].vol_start         <= {host_din[7:0], 18'd0};
-                                5'h08: voice_regs[osc_select].vol_end           <= {host_din[7:0], 18'd0};
-                                5'h09: begin
-                                    voice_regs[osc_select].vol_acc[17:10] <= host_din[7:0];
-                                    voice_regs[osc_select].vol_acc[9:0]   <= 10'd0;
+                                5'h0E, 5'h12: ;
+                                default: begin
+                                    if (host_voice_wr_can_buffer) begin
+                                        host_voice_wr_voice <= osc_select;
+                                        host_voice_wr_reg <= reg_select;
+                                        host_voice_wr_value[7:0] <= host_din[7:0];
+                                        host_voice_wr_pending[0] <= 1'b1;
+                                    end
                                 end
-                                5'h0A: voice_regs[osc_select].osc_acc[20:13]    <= host_din[7:0];
-                                5'h0B: voice_regs[osc_select].osc_acc[4:0]      <= host_din[7:3];
-                                default: ;
                             endcase
                         end else begin
                             case (reg_select)
