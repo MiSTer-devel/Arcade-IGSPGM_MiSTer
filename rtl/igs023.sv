@@ -263,18 +263,31 @@ reg [12:0] color_addr;
 reg hblank2, vblank2, hsync2, vsync2;
 always_ff @(posedge clk) begin
     if (ce_pixel) begin
+        bit fg_valid;
+        bit bg_valid;
+        bit spr_valid;
+        bit spr_prio;
+
+        fg_valid = ~&fg_color[3:0] & fg_en;
+        bg_valid = ~&bg_color[4:0] & bg_en;
+        spr_valid = sprite_color[11];
+        spr_prio = ~sprite_color[10];
+
         vid_color <= pal_din[14:0];
         vsync2 <= vsync; vid_vsync <= vsync2;
         vblank2 <= vblank; vid_vblank <= vblank2;
         hsync2 <= hsync; vid_hsync <= hsync2;
         hblank2 <= hblank; vid_hblank <= hblank2;
-        if (~&fg_color[3:0] & fg_en)
+        
+        if (fg_valid)
             color_addr <= 13'h1000 + { 3'd0, fg_color[8:0], 1'b0 };
-        else if (sprite_color[11]) begin
+        else if (spr_valid & spr_prio) begin
             color_addr <= 13'h0000 + { 2'd0, sprite_color[9:0], 1'b0 };
-        end else if (~&bg_color[4:0] & bg_en)
+        end else if (bg_valid)
             color_addr <= 13'h0800 + { 2'd0, bg_color[9:0], 1'b0 };
-        else
+        else if (spr_valid & ~spr_prio) begin
+            color_addr <= 13'h0000 + { 2'd0, sprite_color[9:0], 1'b0 };
+        end else
             color_addr <= 13'h07fe; // this seems to be the background color?
     end
 end

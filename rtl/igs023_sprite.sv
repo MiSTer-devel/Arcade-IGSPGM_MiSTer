@@ -522,7 +522,7 @@ always_ff @(posedge clk) begin
                 if (sprite_index == sprite_count) begin
                     draw_line <= draw_line + 1;
                     sprite_index <= 0;
-                    if (draw_line == 224) begin
+                    if (draw_line == 223) begin
                         dma_state <= DMA_IDLE;
                     end else begin
                         dma_state <= DRAW_SEARCH_ACTIVE_LOAD; // load correct sprite index
