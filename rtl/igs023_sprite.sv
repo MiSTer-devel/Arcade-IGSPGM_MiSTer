@@ -36,8 +36,16 @@ typedef enum bit [4:0] {
     PRESCAN_LOAD, PRESCAN_INITIAL_BROM, PRESCAN_INITIAL_BROM_WAIT, PRESCAN_INITIAL_NEXT,
     PRESCAN_NEXT, PRESCAN_SCAN_TO_START, PRESCAN_BROM_WAIT,
     DRAW_INIT, DRAW_LINE_WAIT, DRAW_SEARCH_ACTIVE_LOAD, DRAW_SEARCH_ACTIVE_CHECK,
-    DRAW_ROW, DRAW_SPAN, DRAW_ROW_END, DRAW_BROM_WAIT
+    DRAW_ROW, DRAW_SPAN, DRAW_ROW_END, DRAW_BROM_WAIT, SKIP_ROW, SKIP_ROW_BROM_WAIT
 } dma_state_t;
+
+logic [31:0] scale_pattern [32] =
+'{
+   32'hAAAAAAAA, 32'hA8AAAAAA, 32'hA8AAA8AA, 32'hA8A8A8AA, 32'hA8A8A8A8, 32'h88A8A8A8, 32'h88A888A8, 32'h888888A8,
+   32'h88888888, 32'h80888888, 32'h80888088, 32'h80808088, 32'h80808080, 32'h80008080, 32'h80008000, 32'h00008000,
+   32'h00000000, 32'h00010000, 32'h00010001, 32'h01010001, 32'h01010101, 32'h01110101, 32'h01110111, 32'h11110111,
+   32'h11111111, 32'h11511111, 32'h11511151, 32'h51511151, 32'h51515151, 32'h51555151, 32'h51555155, 32'h55555155
+};
 
 dma_state_t dma_state = DMA_IDLE;
 reg [2:0] sprite_component_index;
@@ -51,9 +59,7 @@ reg [15:0] sprite_d3[256] /* verilator public_flat */;
 reg [15:0] sprite_d4[256] /* verilator public_flat */;
 
 reg [10:0] spr_x;
-reg [4:0] spr_x_scale;
 reg [9:0] spr_y;
-reg [4:0] spr_y_scale;
 reg [22:0] spr_brom_base_addr;
 reg spr_prio;
 reg [4:0] spr_palette;
@@ -61,20 +67,27 @@ reg spr_x_flip;
 reg spr_y_flip;
 reg [5:0] spr_width;
 reg [8:0] spr_height;
+reg spr_y_zoom;
+reg spr_x_zoom;
+reg [31:0] spr_x_scale_bits;
+reg [31:0] spr_y_scale_bits;
 
-wire [9:0] spr_y_end = spr_y + ( { 1'b0, spr_height } - 10'd1 );
+
+wire [8:0] spr_y_end = spr_height - 9'd1;
 
 typedef struct
 {
-    bit [63:0] brom_cache;
-    bit [15:0] brom_offset;
+    bit [63:0]    brom_cache;
+    bit [15:0]    brom_offset;
     arom_offset_t arom_offset;
-    bit [9:0] line;
-    bit        active;
+    bit [9:0]     screen_line;
+    bit [8:0]     source_line;
+    bit           active;
+    bit           repeated;
 } volatile_sprite_state_t;
 
 volatile_sprite_state_t sprite_state[256];
-volatile_sprite_state_t spr;
+volatile_sprite_state_t spr, spr_saved;
 
 function automatic [22:0] brom_address_for_offset(input [15:0] offset);
 begin
@@ -283,9 +296,9 @@ always_ff @(posedge clk) begin
 
         if (spr_load) begin
             spr_x <= sprite_d0[sprite_index][10:0];
-            spr_x_scale <= sprite_d0[sprite_index][15:11];
+            spr_x_zoom <= sprite_d0[sprite_index][15];
             spr_y <= sprite_d1[sprite_index][9:0];
-            spr_y_scale <= sprite_d1[sprite_index][15:11];
+            spr_y_zoom <= sprite_d1[sprite_index][15];
             tmp_y_flip = sprite_d2[sprite_index][14];
             tmp_height = sprite_d4[sprite_index][8:0];
             tmp_width = sprite_d4[sprite_index][14:9];
@@ -301,7 +314,12 @@ always_ff @(posedge clk) begin
             spr_y_flip <= tmp_y_flip;
             spr_height <= tmp_height;
             spr_width <= tmp_width;
+
             spr <= sprite_state[sprite_index];
+            spr_saved <= sprite_state[sprite_index];
+           
+            spr_x_scale_bits <= scale_pattern[sprite_d0[sprite_index][15:11]];
+            spr_y_scale_bits <= scale_pattern[sprite_d1[sprite_index][15:11]];
         end else if (spr_store) begin
             sprite_state[sprite_index] <= spr;
         end
@@ -375,16 +393,21 @@ always_ff @(posedge clk) begin
                 spr.brom_offset <= 0;
                 brom_req <= ~brom_req;
                 tmp_x <= 0;
-                spr.line <= spr_y;
+                spr.screen_line <= spr_y;
+                spr.source_line <= 0;
                 dma_state <= PRESCAN_INITIAL_BROM_WAIT;
             end
 
             PRESCAN_INITIAL_BROM_WAIT: begin
                 if (brom_req == brom_ack) begin
                     spr.brom_cache <= brom_data;
+                    spr_saved.brom_cache <= brom_data;
+                    spr.active <= 1;
+                    spr.repeated <= 0;
                     initial_addr_low <= brom_extract(brom_data, 0);
                     if (brom_is_last_in_cache(0)) begin
                         spr.brom_offset <= 1;
+                        spr_saved.brom_offset <= 1;
                         brom_req <= ~brom_req;
                         dma_state <= PRESCAN_INITIAL_NEXT;
                     end else begin
@@ -392,7 +415,10 @@ always_ff @(posedge clk) begin
                         spr.arom_offset.words <= tmp_addr32[25:2];
                         spr.arom_offset.sub <= tmp_addr32[1:0];
                         spr.brom_offset <= 2;
-                        spr.active <= 1;
+                        spr_saved.arom_offset.words <= tmp_addr32[25:2];
+                        spr_saved.arom_offset.sub <= tmp_addr32[1:0];
+                        spr_saved.brom_offset <= 2;
+                         
                         if (brom_is_last_in_cache(1)) begin
                             brom_req <= ~brom_req;
                             dma_state <= PRESCAN_BROM_WAIT;
@@ -406,42 +432,61 @@ always_ff @(posedge clk) begin
             PRESCAN_INITIAL_NEXT: begin
                 if (brom_req == brom_ack) begin
                     spr.brom_cache <= brom_data;
+                    spr_saved.brom_cache <= brom_data;
                     tmp_addr32 = { brom_extract(brom_data, 1), initial_addr_low };
                     spr.arom_offset.words <= tmp_addr32[25:2];
                     spr.arom_offset.sub <= tmp_addr32[1:0];
                     spr.brom_offset <= 2;
-                    spr.active <= 1;
+                    spr_saved.arom_offset.words <= tmp_addr32[25:2];
+                    spr_saved.arom_offset.sub <= tmp_addr32[1:0];
+                    spr_saved.brom_offset <= 2;
                     dma_state <= PRESCAN_SCAN_TO_START;
                 end
             end
 
             PRESCAN_SCAN_TO_START: begin
-                if (~spr.line[9]) begin // if y position is no long negative we are good
+                if (~spr.screen_line[9]) begin // if y position is no long negative we are good
                     dma_state <= PRESCAN_NEXT;
+                end else if (tmp_x == spr_width) begin
+                    if (spr.source_line == spr_y_end) begin
+                        spr.active <= 0;
+                        dma_state <= PRESCAN_NEXT; // override BROM_WAIT state
+                    end
+
+                    if (spr_y_zoom) begin
+                        spr.screen_line <= spr.screen_line + 1;
+                        spr.repeated <= 0;
+                        if (spr.repeated | ~spr_y_scale_bits[spr.source_line[4:0]]) begin
+                            spr.source_line <= spr.source_line + 1;
+                            spr_saved <= spr;
+                        end else begin
+                            spr.repeated <= 1;
+                            spr.arom_offset <= spr_saved.arom_offset;
+                            spr.brom_offset <= spr_saved.brom_offset;
+                            spr.brom_cache  <= spr_saved.brom_cache;
+                        end
+                    end else begin
+                        spr.source_line <= spr.source_line + 1;
+                        if (~spr_y_scale_bits[spr.source_line[4:0]]) spr.screen_line <= spr.screen_line + 1;
+                        spr_saved <= spr;
+                    end
+                    tmp_x <= 0;
                 end else begin
                     spr.arom_offset <= inc_offset(spr.arom_offset, count_zeros16(spr_brom_data));
                     spr.brom_offset <= spr.brom_offset + 1;
                     tmp_x <= tmp_x + 1;
+                    
                     if (brom_is_last_in_cache(spr.brom_offset)) begin
                         brom_req <= ~brom_req;
                         dma_state <= PRESCAN_BROM_WAIT;
                     end
-
-                    if ((tmp_x + 1) == spr_width) begin
-                        if (spr.line == spr_y_end) begin
-                            spr.active <= 0;
-                            dma_state <= PRESCAN_NEXT; // override BROM_WAIT state
-                        end
-                        spr.line <= spr.line + 1;
-                        tmp_x <= 0;
-                    end
-
                 end
             end
 
             PRESCAN_BROM_WAIT: begin
                 if (brom_req == brom_ack) begin
                     spr.brom_cache <= brom_data;
+                    if (tmp_x == 0) spr_saved.brom_cache <= brom_data;
                     dma_state <= PRESCAN_SCAN_TO_START;
                 end
             end
@@ -474,7 +519,7 @@ always_ff @(posedge clk) begin
             end
 
             DRAW_SEARCH_ACTIVE_CHECK: begin
-                if (spr.active && spr.line == draw_line) begin
+                if (spr.active && spr.screen_line == draw_line) begin
                     dma_state <= DRAW_ROW;
                     tmp_x <= 0;
                     pixel_next <= 0;
@@ -489,11 +534,30 @@ always_ff @(posedge clk) begin
                 tmp_shift_count <= 0;
                 dma_state <= DRAW_SPAN;
                 if (tmp_x == spr_width) begin
-                    spr.line <= spr.line + 1;
-                    if (spr.line == spr_y_end) begin
+                    if (spr_y_zoom) begin
+                        spr.screen_line <= spr.screen_line + 1;
+                        spr.repeated <= 0;
+                        if (spr.repeated | ~spr_y_scale_bits[spr.source_line[4:0]]) begin
+                            spr.source_line <= spr.source_line + 1;
+                        end else begin
+                            spr.repeated <= 1;
+                            spr.arom_offset <= spr_saved.arom_offset;
+                            spr.brom_offset <= spr_saved.brom_offset;
+                            spr.brom_cache  <= spr_saved.brom_cache;
+                        end
+                    end else begin
+                        spr.screen_line <= spr.screen_line + 1;
+                        spr.source_line <= spr.source_line + 1;
+                    end
+                    if (spr.source_line == spr_y_end) begin
                         spr.active <= 0;
                     end
                     dma_state <= DRAW_ROW_END;
+
+                    if (~spr_y_zoom & spr_y_scale_bits[spr.source_line[4:0]]) begin
+                        dma_state <= SKIP_ROW;
+                        tmp_x <= 0;
+                    end
                 end
             end
 
@@ -559,6 +623,31 @@ always_ff @(posedge clk) begin
                 dma_state <= DRAW_SEARCH_ACTIVE_LOAD;
             end
 
+            SKIP_ROW: begin
+                if (tmp_x == spr_width) begin
+                    spr.source_line <= spr.source_line + 1;
+                    if (spr.source_line == spr_y_end) begin
+                        spr.active <= 0;
+                    end
+                    dma_state <= DRAW_ROW_END;
+                end else begin
+                    spr.arom_offset <= inc_offset(spr.arom_offset, count_zeros16(spr_brom_data));
+                    spr.brom_offset <= spr.brom_offset + 1;
+                    tmp_x <= tmp_x + 1;
+                    
+                    if (brom_is_last_in_cache(spr.brom_offset)) begin
+                        brom_req <= ~brom_req;
+                        dma_state <= SKIP_ROW_BROM_WAIT;
+                    end
+                end
+            end
+
+            SKIP_ROW_BROM_WAIT: begin
+                if (brom_req == brom_ack) begin
+                    spr.brom_cache <= brom_data;
+                    dma_state <= SKIP_ROW;
+                end
+            end
 
             default: dma_state <= DMA_IDLE;
 
