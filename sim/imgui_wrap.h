@@ -10,6 +10,7 @@
 #include <vector>
 
 bool ImguiInit(const char *title);
+void ImguiShutdown();
 void ImguiInitWindows();
 bool ImguiBeginFrame();
 void ImguiEndFrame();

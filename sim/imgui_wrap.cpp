@@ -3,10 +3,11 @@
 #include "imgui_impl_sdlrenderer2.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <SDL.h>
 
-SDL_Window *gSdlWindow;
-SDL_Renderer *gSdlRenderer;
+SDL_Window *gSdlWindow = nullptr;
+SDL_Renderer *gSdlRenderer = nullptr;
 
 #define BTN_RIGHT 0x0001
 #define BTN_LEFT 0x0002
@@ -20,6 +21,151 @@ SDL_Renderer *gSdlRenderer;
 
 static uint32_t gButtons;
 
+namespace
+{
+constexpr const char *kWindowSettingsPath = "pgm_sim_window.ini";
+constexpr int kDefaultWindowWidth = 1280;
+constexpr int kDefaultWindowHeight = 720;
+constexpr int kMinWindowWidth = 320;
+constexpr int kMinWindowHeight = 240;
+
+struct AppWindowSettings
+{
+    int x = SDL_WINDOWPOS_CENTERED;
+    int y = SDL_WINDOWPOS_CENTERED;
+    int w = kDefaultWindowWidth;
+    int h = kDefaultWindowHeight;
+    bool hasPosition = false;
+    bool maximized = false;
+};
+
+AppWindowSettings gAppWindowSettings;
+
+void ParseAppWindowSettingLine(AppWindowSettings &settings, const char *line)
+{
+    char key[64];
+    int value;
+    if (sscanf(line, " %63[^=]=%d", key, &value) != 2)
+        return;
+
+    if (strcmp(key, "x") == 0)
+    {
+        settings.x = value;
+        settings.hasPosition = true;
+    }
+    else if (strcmp(key, "y") == 0)
+    {
+        settings.y = value;
+        settings.hasPosition = true;
+    }
+    else if (strcmp(key, "w") == 0)
+    {
+        settings.w = value;
+    }
+    else if (strcmp(key, "h") == 0)
+    {
+        settings.h = value;
+    }
+    else if (strcmp(key, "maximized") == 0)
+    {
+        settings.maximized = value != 0;
+    }
+}
+
+void ValidateAppWindowSettings(AppWindowSettings &settings)
+{
+    if (settings.w < kMinWindowWidth)
+        settings.w = kDefaultWindowWidth;
+    if (settings.h < kMinWindowHeight)
+        settings.h = kDefaultWindowHeight;
+}
+
+AppWindowSettings LoadAppWindowSettings()
+{
+    AppWindowSettings settings;
+    FILE *file = fopen(kWindowSettingsPath, "r");
+    if (!file)
+        return settings;
+
+    char line[256];
+    bool sawSection = false;
+    bool inAppWindowSection = false;
+    while (fgets(line, sizeof(line), file))
+    {
+        if (line[0] == '[')
+        {
+            sawSection = true;
+            inAppWindowSection = strncmp(line, "[AppWindow][Main]", 17) == 0;
+            continue;
+        }
+
+        // Also accept the previous standalone pgm_sim_window.ini format,
+        // which had bare x/y/w/h/maximized lines and no section header.
+        if (!sawSection || inAppWindowSection)
+        {
+            ParseAppWindowSettingLine(settings, line);
+        }
+    }
+
+    fclose(file);
+    ValidateAppWindowSettings(settings);
+    return settings;
+}
+
+void CaptureAppWindowSettings()
+{
+    if (!gSdlWindow)
+        return;
+
+    const Uint32 flags = SDL_GetWindowFlags(gSdlWindow);
+    if (flags & SDL_WINDOW_MINIMIZED)
+        return;
+
+    SDL_GetWindowPosition(gSdlWindow, &gAppWindowSettings.x, &gAppWindowSettings.y);
+    SDL_GetWindowSize(gSdlWindow, &gAppWindowSettings.w, &gAppWindowSettings.h);
+    gAppWindowSettings.hasPosition = true;
+    gAppWindowSettings.maximized = (flags & SDL_WINDOW_MAXIMIZED) != 0;
+    ValidateAppWindowSettings(gAppWindowSettings);
+}
+
+void *AppWindowSettingsHandlerReadOpen(ImGuiContext *, ImGuiSettingsHandler *, const char *name)
+{
+    return strcmp(name, "Main") == 0 ? &gAppWindowSettings : nullptr;
+}
+
+void AppWindowSettingsHandlerReadLine(ImGuiContext *, ImGuiSettingsHandler *, void *entry, const char *line)
+{
+    AppWindowSettings *settings = (AppWindowSettings *)entry;
+    ParseAppWindowSettingLine(*settings, line);
+    ValidateAppWindowSettings(*settings);
+}
+
+void AppWindowSettingsHandlerWriteAll(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
+{
+    CaptureAppWindowSettings();
+
+    buf->appendf("[%s][Main]\n", handler->TypeName);
+    buf->appendf("x=%d\n", gAppWindowSettings.x);
+    buf->appendf("y=%d\n", gAppWindowSettings.y);
+    buf->appendf("w=%d\n", gAppWindowSettings.w);
+    buf->appendf("h=%d\n", gAppWindowSettings.h);
+    buf->appendf("maximized=%d\n\n", gAppWindowSettings.maximized ? 1 : 0);
+}
+
+void RegisterAppWindowSettingsHandler()
+{
+    ImGuiSettingsHandler iniHandler;
+    iniHandler.TypeName = "AppWindow";
+    iniHandler.TypeHash = ImHashStr("AppWindow");
+    iniHandler.ClearAllFn = nullptr;
+    iniHandler.ReadOpenFn = AppWindowSettingsHandlerReadOpen;
+    iniHandler.ReadLineFn = AppWindowSettingsHandlerReadLine;
+    iniHandler.ApplyAllFn = nullptr;
+    iniHandler.WriteAllFn = AppWindowSettingsHandlerWriteAll;
+    ImGui::AddSettingsHandler(&iniHandler);
+}
+} // namespace
+
 bool ImguiInit(const char *title)
 {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0)
@@ -28,13 +174,25 @@ bool ImguiInit(const char *title)
         return false;
     }
 
+    gAppWindowSettings = LoadAppWindowSettings();
+
     // Create window with SDL_Renderer graphics context
     SDL_WindowFlags windowFlags = (SDL_WindowFlags)(SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
-    SDL_Window *window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720, windowFlags);
+    SDL_Window *window = SDL_CreateWindow(title,
+                                          gAppWindowSettings.hasPosition ? gAppWindowSettings.x : SDL_WINDOWPOS_CENTERED,
+                                          gAppWindowSettings.hasPosition ? gAppWindowSettings.y : SDL_WINDOWPOS_CENTERED,
+                                          gAppWindowSettings.w,
+                                          gAppWindowSettings.h,
+                                          windowFlags);
     if (window == nullptr)
     {
         printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
         return false;
+    }
+
+    if (gAppWindowSettings.maximized)
+    {
+        SDL_MaximizeWindow(window);
     }
 
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
@@ -48,7 +206,7 @@ bool ImguiInit(const char *title)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
-    (void)io;
+    io.IniFilename = kWindowSettingsPath;
     // io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable
     // Keyboard Controls io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad; //
     // Enable Gamepad Controls
@@ -75,8 +233,37 @@ bool ImguiInit(const char *title)
     iniHandler.ApplyAllFn = nullptr;
     iniHandler.WriteAllFn = Window::SettingsHandlerWriteAll;
     ImGui::AddSettingsHandler(&iniHandler);
+    RegisterAppWindowSettingsHandler();
 
     return true;
+}
+
+void ImguiShutdown()
+{
+    if (ImGui::GetCurrentContext())
+    {
+        ImGuiIO &io = ImGui::GetIO();
+        if (io.IniFilename)
+        {
+            ImGui::SaveIniSettingsToDisk(io.IniFilename);
+        }
+
+        ImGui_ImplSDLRenderer2_Shutdown();
+        ImGui_ImplSDL2_Shutdown();
+        ImGui::DestroyContext();
+    }
+
+    if (gSdlRenderer)
+    {
+        SDL_DestroyRenderer(gSdlRenderer);
+        gSdlRenderer = nullptr;
+    }
+    if (gSdlWindow)
+    {
+        SDL_DestroyWindow(gSdlWindow);
+        gSdlWindow = nullptr;
+    }
+    SDL_Quit();
 }
 
 void ImguiInitWindows()

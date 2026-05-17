@@ -14,6 +14,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -69,9 +70,29 @@ void ClearCartConfig()
     gSimCore.mTop->rootp->sim_top__DOT__cart_music_base = 0;
 }
 
+const char *RomDir()
+{
+    const char *romDir = std::getenv("PGM_ROM_DIR");
+    return (romDir != nullptr && romDir[0] != '\0') ? romDir : "../roms";
+}
+
+std::string RomPath(const std::string &name)
+{
+    std::string path = RomDir();
+    if (!path.empty() && path.back() != '/' && path.back() != '\\')
+        path += '/';
+    path += name;
+    return path;
+}
+
+void AddRomZip(const std::string &name)
+{
+    gFileSearch.AddSearchPath(RomPath(name + ".zip"));
+}
+
 bool LoadBasePgmBios()
 {
-    gFileSearch.AddSearchPath("../roms/pgm.zip");
+    AddRomZip("pgm");
 
     if (!gSimCore.mSDRAM->LoadData16be("pgm_p02s.u20", BIOS_PROG_ROM_SDR_BASE, 2))
         return false;
@@ -269,8 +290,8 @@ static void LoadPgm()
 static void LoadPgmTest()
 {
     gFileSearch.AddSearchPath("../testroms/build/pgm_test/pgm/");
-    gFileSearch.AddSearchPath("../roms/kov.zip");
-    gFileSearch.AddSearchPath("../roms/kovsh.zip");
+    AddRomZip("kov");
+    AddRomZip("kovsh");
     LoadBasePgmBios();
     ClearCartConfig();
     gSimCore.mSDRAM->LoadData("pgm_b0600.u6", CART_B_ROM_SDR_BASE, 1);
@@ -285,7 +306,7 @@ static void LoadPgmTest()
 
 static void LoadTestbios()
 {
-    gFileSearch.AddSearchPath("../roms/pgm.zip");
+    AddRomZip("pgm");
 
     gSimCore.mSDRAM->LoadData16be("testbios.bin", BIOS_PROG_ROM_SDR_BASE, 2);
     gSimCore.mSDRAM->LoadData("pgm_t01s.rom", BIOS_TILE_ROM_SDR_BASE, 1);
@@ -300,8 +321,8 @@ static void LoadEspgalbl()
 {
     LoadPgm();
 
-    gFileSearch.AddSearchPath("../roms/espgalbl.zip");
-    gFileSearch.AddSearchPath("../roms/espgal.zip");
+    AddRomZip("espgalbl");
+    AddRomZip("espgal");
 
     gSimCore.mSDRAM->LoadData16be("espgaluda_u8.bin", CART_PROG_ROM_SDR_BASE, 2);
     gSimCore.mSDRAM->LoadData("cave_t04801w064.u19", CART_TILE_ROM_SDR_BASE, 1);
@@ -323,7 +344,7 @@ static void LoadOrlegend()
 {
     LoadPgm();
 
-    gFileSearch.AddSearchPath("../roms/orlegend.zip");
+    AddRomZip("orlegend");
 
     LoadSdramData16be("p0103.rom", 0xd5e93543, CART_PROG_ROM_SDR_BASE);
     LoadSdramData("pgm_t0100.u8", 0x61425e1e, CART_TILE_ROM_SDR_BASE);
@@ -351,8 +372,8 @@ static void LoadKetbl()
 {
     LoadPgm();
 
-    gFileSearch.AddSearchPath("../roms/ketbl.zip");
-    gFileSearch.AddSearchPath("../roms/ket.zip");
+    AddRomZip("ketbl");
+    AddRomZip("ket");
 
     LoadSdramData16be("ketsui_u1.bin", 0x391767b4, CART_PROG_ROM_SDR_BASE, 0x200000, 0x200000);
     LoadSdramData("t04701w064.u19", 0x2665b041, CART_TILE_ROM_SDR_BASE);
@@ -374,9 +395,9 @@ static void LoadDdpdojblkbl()
 {
     LoadPgm();
 
-    gFileSearch.AddSearchPath("../roms/ddpdojblkbl.zip");
-    gFileSearch.AddSearchPath("../roms/ddpdojblk.zip");
-    gFileSearch.AddSearchPath("../roms/ddp3.zip");
+    AddRomZip("ddpdojblkbl");
+    AddRomZip("ddpdojblk");
+    AddRomZip("ddp3");
 
     LoadSdramData16be("ddp_doj_u1.bin", 0xeb4ab06a, CART_PROG_ROM_SDR_BASE);
     LoadSdramData("t04401w064.u19", 0x3a95f19c, CART_TILE_ROM_SDR_BASE);
@@ -398,9 +419,9 @@ static void LoadKovblCommon(const char *shortName, const char *zipName, uint32_t
 {
     LoadPgm();
 
-    gFileSearch.AddSearchPath(std::string("../roms/") + zipName + ".zip");
-    gFileSearch.AddSearchPath("../roms/kov.zip");
-    gFileSearch.AddSearchPath("../roms/kovplus.zip");
+    AddRomZip(zipName);
+    AddRomZip("kov");
+    AddRomZip("kovplus");
 
     LoadSdramData16be("prg1.29f1610ml", prg1Crc, CART_PROG_ROM_SDR_BASE);
     LoadSdramData16be("prg2.am27c4096", 0x7b3577dc, CART_PROG_ROM_SDR_BASE + 0x200000);
@@ -560,7 +581,7 @@ bool GameInitMra(const char *mraPath)
     gFileSearch.ClearSearchPaths();
 
     // Add common ROM search paths
-    std::vector<std::string> searchPaths = {".", "../roms/"};
+    std::vector<std::string> searchPaths = {".", RomDir()};
 
     // Add ROM search paths
     for (const auto &path : searchPaths)

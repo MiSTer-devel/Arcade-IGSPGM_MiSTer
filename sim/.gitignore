@@ -8,6 +8,7 @@ microrom.mem
 *.ss
 compile_commands.json
 imgui.ini
+pgm_sim_window.ini
 *.fst
 *.vcd
 sim

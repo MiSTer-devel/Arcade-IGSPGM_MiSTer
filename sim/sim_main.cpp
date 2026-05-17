@@ -57,6 +57,7 @@ int main(int argc, char **argv)
     if (!initResult.ok)
     {
         fprintf(stderr, "Failed to initialize simulator: %s\n", initResult.errorMessage.c_str());
+        ImguiShutdown();
         return -1;
     }
 
@@ -73,6 +74,8 @@ int main(int argc, char **argv)
         if (!loadResult.ok)
         {
             fprintf(stderr, "Failed to load MRA: %s\n", loadResult.errorMessage.c_str());
+            gSimController.Shutdown();
+            ImguiShutdown();
             return -1;
         }
     }
@@ -82,6 +85,8 @@ int main(int argc, char **argv)
         if (!loadResult.ok)
         {
             fprintf(stderr, "Failed to load game: %s\n", loadResult.errorMessage.c_str());
+            gSimController.Shutdown();
+            ImguiShutdown();
             return -1;
         }
         gSimController.Reset(100);
@@ -140,5 +145,6 @@ int main(int argc, char **argv)
     }
 
     gSimController.Shutdown();
+    ImguiShutdown();
     return 0;
 }
