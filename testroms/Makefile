@@ -27,7 +27,7 @@ endif
 
 
 BUILD_DIR = build/$(TARGET)
-ROM_DIR = ../roms
+PGM_ROM_DIR ?= ../roms
 PAGE_BUILD_ID := $(if $(strip $(PAGE)),$(PAGE),all-pages)
 PAGE_STAMP := $(BUILD_DIR)/.page-$(PAGE_BUILD_ID)
 
@@ -59,7 +59,7 @@ endif
 GAME_DIR = $(BUILD_DIR)/$(GAME)
 BUILT_BINS = $(addprefix $(GAME_DIR)/, $(CPU_ROM) $(AUDIO_CPU_ROM))
 
-ROMPATH = ../$(BUILD_DIR);../$(ROM_DIR)
+ROMPATH = ../$(BUILD_DIR);$(PGM_ROM_DIR)
 
 all: $(BUILT_BINS)
 
