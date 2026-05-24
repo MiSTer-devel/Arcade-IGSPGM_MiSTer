@@ -17,8 +17,11 @@ HDR_FMT = "<IHHIIQIQII"
 HDR_SIZE = struct.calcsize(HDR_FMT)
 TYPE_AUDIO = 1
 TYPE_STATUS = 2
+TYPE_CONTROL = 3
 STATUS_FMT = "<IIIIIIIIIIIIIIhhIIII"
+CONTROL_FMT = "<IIIII"
 STATUS_SIZE = struct.calcsize(STATUS_FMT)
+CONTROL_SIZE = struct.calcsize(CONTROL_FMT)
 POLL_S = 0.2
 READ_SIZE = 4096
 
@@ -32,6 +35,18 @@ class StreamSource:
 
     def read(self, size):
         return self._stream.read(size)
+
+    def write(self, data):
+        written = self._stream.write(data)
+        flush = getattr(self._stream, 'flush', None)
+        if flush is not None:
+            flush()
+        return written
+
+    def reset_input_buffer(self):
+        reset = getattr(self._stream, 'reset_input_buffer', None)
+        if reset is not None:
+            reset()
 
     def close(self):
         self._stream.close()
@@ -80,6 +95,16 @@ class PosixSerialSource:
         except BlockingIOError:
             return b''
 
+    def write(self, data):
+        return os.write(self._fd, data)
+
+    def reset_input_buffer(self):
+        try:
+            import termios
+            termios.tcflush(self._fd, termios.TCIFLUSH)
+        except OSError:
+            pass
+
     def close(self):
         try:
             self._termios.tcsetattr(self._fd, self._termios.TCSANOW, self._old_attrs)
@@ -87,28 +112,14 @@ class PosixSerialSource:
             os.close(self._fd)
 
 
-class SerialSource(StreamSource):
-    def __init__(self, port):
-        try:
-            import serial
-        except ImportError:
-            print('pyserial not found; using POSIX serial fallback', file=sys.stderr)
-            fallback = PosixSerialSource(port)
-            self.__class__ = PosixSerialSource
-            self.__dict__ = fallback.__dict__
-            return
+class SerialSource(PosixSerialSource):
+    """Default live serial source.
 
-        ser = serial.Serial()
-        ser.port = port
-        ser.baudrate = 115200
-        ser.timeout = POLL_S
-        ser.rtscts = False
-        ser.dsrdtr = False
-        ser.xonxoff = False
-        ser.open()
-        ser.dtr = True
-        ser.rts = False
-        super().__init__(ser, live=True)
+    Use the lean POSIX fd implementation by default; it has lower latency for
+    this high-rate USB CDC packet stream than pyserial's wrapper path.
+    """
+
+    pass
 
 
 class FileSource(StreamSource):
@@ -199,6 +210,12 @@ def decode_status(data):
     return dict(zip(keys, fields))
 
 
+def decode_control(data):
+    fields = struct.unpack(CONTROL_FMT, data)
+    keys = ['cmd', 'seq', 'status', 'mode', 'value']
+    return dict(zip(keys, fields))
+
+
 def final_sample_rate(counter, fallback):
     if not counter:
         return fallback
@@ -276,6 +293,7 @@ def main():
     audio_packets = 0
     status_packets = 0
     malformed_status_packets = 0
+    control_packets = 0
     first_packet_time = None
     first_audio_time = None
     deadline = None if args.input or args.endless else (time.time() + args.duration if args.duration > 0 else None)
@@ -354,6 +372,12 @@ def main():
                     else:
                         malformed_status_packets += 1
                         record['status_error'] = f'unexpected status payload {len(payload)}'
+                elif hdr['type'] == TYPE_CONTROL:
+                    control_packets += 1
+                    if len(payload) == CONTROL_SIZE:
+                        record['control'] = decode_control(payload)
+                    else:
+                        record['control_error'] = f'unexpected control payload {len(payload)}'
                 else:
                     record['unknown_payload_bytes'] = len(payload)
 
@@ -364,7 +388,7 @@ def main():
                     elapsed = max(now - ref, 0.001)
                     print(
                         f'packets={audio_packets + status_packets} '
-                        f'audio={audio_packets} status={status_packets} '
+                        f'audio={audio_packets} status={status_packets} control={control_packets} '
                         f'frames={total_frames} rate~={final_sample_rate(rate_counter, 33074)} '
                         f'fps={total_frames/elapsed:.1f} gaps={frame_gap_count}/{block_gap_count}',
                         flush=True,
@@ -385,6 +409,7 @@ def main():
         'audio_packets': audio_packets,
         'status_packets': status_packets,
         'malformed_status_packets': malformed_status_packets,
+        'control_packets': control_packets,
         'block_gap_count': block_gap_count,
         'frame_gap_count': frame_gap_count,
         'frame_gap_frames': block_gap_frames,
@@ -398,7 +423,7 @@ def main():
     if not args.print_sample_changes:
         print(
             f'Wrote {output_path} rate={sample_rate} frames={total_frames} '
-            f'audio_packets={audio_packets} status_packets={status_packets} '
+            f'audio_packets={audio_packets} status_packets={status_packets} control_packets={control_packets} '
             f'frame_gaps={frame_gap_count} block_gaps={block_gap_count}',
             flush=True,
         )

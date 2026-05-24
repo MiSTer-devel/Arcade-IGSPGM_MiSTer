@@ -45,6 +45,9 @@ static uint32_t build_capture_flags(void) {
     if (!capture_stream_connected()) {
         flags |= PGM_CAPTURE_FLAG_NO_HOST;
     }
+    if (capture_stream_get_mode() != PGM_CAPTURE_STREAM_MODE_CONTINUOUS) {
+        flags |= PGM_CAPTURE_FLAG_TRIGGERED_MODE;
+    }
     return flags;
 }
 
@@ -77,7 +80,7 @@ static void status_task(void) {
         .stream_dropped_packets = capture_stream_get_dropped_packets(),
         .stream_dropped_bytes = capture_stream_get_dropped_bytes(),
         .stream_queue_depth = capture_stream_get_queue_depth(),
-        .reserved = 0,
+        .reserved = capture_stream_get_armed_remaining(),
     };
 
     capture_stream_submit_status(time_us_64(), build_capture_flags(), &status);

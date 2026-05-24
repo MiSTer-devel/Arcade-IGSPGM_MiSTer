@@ -22,14 +22,17 @@ try:  # package import when used as util.capture_audio
         choose_port,
         decode_header,
         decode_status,
+        decode_control,
         read_exact,
         sync_to_magic,
         HDR_SIZE,
         MAGIC,
         READ_SIZE,
         STATUS_SIZE,
+        CONTROL_SIZE,
         TYPE_AUDIO,
         TYPE_STATUS,
+        TYPE_CONTROL,
     )
 except ImportError:  # direct import from util/ on PYTHONPATH
     from capture_stream import (  # type: ignore
@@ -38,14 +41,17 @@ except ImportError:  # direct import from util/ on PYTHONPATH
         choose_port,
         decode_header,
         decode_status,
+        decode_control,
         read_exact,
         sync_to_magic,
         HDR_SIZE,
         MAGIC,
         READ_SIZE,
         STATUS_SIZE,
+        CONTROL_SIZE,
         TYPE_AUDIO,
         TYPE_STATUS,
+        TYPE_CONTROL,
     )
 
 
@@ -53,6 +59,26 @@ except ImportError:  # direct import from util/ on PYTHONPATH
 class AudioBlock:
     header: dict
     samples: list[tuple[int, int]]
+
+
+CONTROL_MAGIC = 0x434D4750
+CONTROL_VERSION = 1
+CONTROL_CMD_FLUSH = 1
+CONTROL_CMD_CONTINUOUS = 2
+CONTROL_CMD_IDLE = 3
+CONTROL_CMD_ARM_FRAMES = 4
+CONTROL_CMD_ARM_BLOCKS = 5
+CONTROL_CMD_STATUS = 6
+CONTROL_STATUS_OK = 0
+CONTROL_MODE_CONTINUOUS = 0
+CONTROL_MODE_IDLE = 1
+CONTROL_MODE_ARM_FRAMES = 2
+CONTROL_MODE_ARM_BLOCKS = 3
+CONTROL_COMMAND_FMT = "<IHHII"
+
+
+class AudioControlError(RuntimeError):
+    pass
 
 
 class AudioStreamReader:
@@ -66,6 +92,8 @@ class AudioStreamReader:
         self.audio_packets = 0
         self.status_packets = 0
         self.latest_status: Optional[dict] = None
+        self.latest_control: Optional[dict] = None
+        self._control_seq = 0
 
     @classmethod
     def open(cls, port: Optional[str] = None, *, latest_capacity: int = 65536) -> "AudioStreamReader":
@@ -134,6 +162,9 @@ class AudioStreamReader:
                 self.status_packets += 1
                 if len(payload) == STATUS_SIZE:
                     self.latest_status = decode_status(payload)
+            elif hdr["type"] == TYPE_CONTROL:
+                if len(payload) == CONTROL_SIZE:
+                    self.latest_control = decode_control(payload)
         return None
 
     def read_audio_blocks(self, count: int, *, timeout: Optional[float] = None) -> list[AudioBlock]:
@@ -180,6 +211,80 @@ class AudioStreamReader:
             if self.read_audio_block(timeout=remaining) is None:
                 break
         return self.get_latest_samples(count)
+
+    def _send_control(self, cmd: int, arg: int = 0, *, timeout: Optional[float] = 1.0) -> dict:
+        write = getattr(self.source, "write", None)
+        if write is None:
+            raise AudioControlError("audio source does not support control writes")
+        self._control_seq = (self._control_seq + 1) & 0xFFFFFFFF
+        frame = struct.pack(CONTROL_COMMAND_FMT, CONTROL_MAGIC, CONTROL_VERSION, cmd, self._control_seq, arg)
+        write(frame)
+
+        deadline = self._deadline(timeout)
+        while deadline is None or time.time() < deadline:
+            remaining = None if deadline is None else max(0.0, deadline - time.time())
+            packet = self.read_packet(timeout=remaining)
+            if packet is None:
+                break
+            hdr, payload = packet
+            if hdr["type"] == TYPE_AUDIO:
+                samples = self.decode_samples(payload)
+                self.latest_samples.extend(samples)
+                self.audio_packets += 1
+                if hdr.get("raw_lrclk_hz"):
+                    self.rate_counter[hdr["raw_lrclk_hz"]] += hdr.get("frame_count", len(samples))
+            elif hdr["type"] == TYPE_STATUS:
+                self.status_packets += 1
+                if len(payload) == STATUS_SIZE:
+                    self.latest_status = decode_status(payload)
+            elif hdr["type"] == TYPE_CONTROL and len(payload) == CONTROL_SIZE:
+                control = decode_control(payload)
+                self.latest_control = control
+                if control["seq"] == self._control_seq:
+                    if control["status"] != CONTROL_STATUS_OK:
+                        raise AudioControlError(f"control command failed: {control}")
+                    return control
+        raise AudioControlError("timed out waiting for audio control ACK")
+
+    def flush(self, *, timeout: Optional[float] = 1.0) -> dict:
+        return self._send_control(CONTROL_CMD_FLUSH, 0, timeout=timeout)
+
+    def set_continuous(self, *, timeout: Optional[float] = 1.0) -> dict:
+        return self._send_control(CONTROL_CMD_CONTINUOUS, 0, timeout=timeout)
+
+    def set_idle(self, *, timeout: Optional[float] = 1.0) -> dict:
+        return self._send_control(CONTROL_CMD_IDLE, 0, timeout=timeout)
+
+    def arm_frames(self, count: int, *, timeout: Optional[float] = 1.0) -> dict:
+        return self._send_control(CONTROL_CMD_ARM_FRAMES, count, timeout=timeout)
+
+    def arm_blocks(self, count: int, *, timeout: Optional[float] = 1.0) -> dict:
+        return self._send_control(CONTROL_CMD_ARM_BLOCKS, count, timeout=timeout)
+
+    def get_control_status(self, *, timeout: Optional[float] = 1.0) -> dict:
+        return self._send_control(CONTROL_CMD_STATUS, 0, timeout=timeout)
+
+    def capture_frames(self, count: int, *, timeout: Optional[float] = 1.0) -> list[tuple[int, int]]:
+        """Ask firmware to flush and send the next count stereo frames.
+
+        Firmware discards a couple of internal DMA blocks after the arm command,
+        then returns only newly captured audio. This avoids stale USB/CDC data
+        without closing/reopening the serial port.
+        """
+        self.arm_frames(count, timeout=timeout)
+        out: list[tuple[int, int]] = []
+        deadline = self._deadline(timeout)
+        while len(out) < count:
+            remaining = None if deadline is None else max(0.0, deadline - time.time())
+            block = self.read_audio_block(timeout=remaining)
+            if block is None:
+                break
+            out.extend(block.samples)
+        return out[:count]
+
+    def capture_blocks(self, count: int, *, timeout: Optional[float] = 1.0) -> list[AudioBlock]:
+        self.arm_blocks(count, timeout=timeout)
+        return self.read_audio_blocks(count, timeout=timeout)
 
     def sample_rate(self, fallback: int = 33074) -> int:
         if not self.rate_counter:

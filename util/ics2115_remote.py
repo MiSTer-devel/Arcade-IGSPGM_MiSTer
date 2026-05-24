@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import struct
+import time
 from typing import Any, Optional
 
 REQ_MAGIC = b"IC"
@@ -285,10 +286,15 @@ class ICS2115Remote:
         self.audio = None
 
     @classmethod
-    def open(cls, target: str = "pgm", comms_addr: int = 0x1F800, *, timeout: Optional[float] = None) -> "ICS2115Remote":
+    def open(cls, target: str = "pgm", comms_addr: int = 0x1F800, *, reset: Optional[str] = None, timeout: Optional[float] = None) -> "ICS2115Remote":
         import pypicorom
 
         p = pypicorom.open(target)
+        p.end_comms()
+        if reset:
+            p.set_parameter("reset", reset)
+            time.sleep(0.1)
+            p.set_parameter("reset", "z")
         p.start_comms(comms_addr)
         return cls(p, timeout=timeout)
 
@@ -422,7 +428,17 @@ class ICS2115Remote:
     def latest_audio_samples(self, count: int, *, blocks: Optional[int] = None, timeout: Optional[float] = 1.0) -> list[tuple[int, int]]:
         if self.audio is None:
             raise RuntimeError("audio reader is not open; call open_audio() first")
-        return self.audio.read_latest_samples(count, blocks=blocks, timeout=timeout)
+        if blocks is not None:
+            captured = []
+            for block in self.audio.capture_blocks(blocks, timeout=timeout):
+                captured.extend(block.samples)
+            return captured[-count:]
+        return self.audio.capture_frames(count, timeout=timeout)
+
+    def capture_audio_frames(self, count: int, *, timeout: Optional[float] = 1.0) -> list[tuple[int, int]]:
+        if self.audio is None:
+            raise RuntimeError("audio reader is not open; call open_audio() first")
+        return self.audio.capture_frames(count, timeout=timeout)
 
 
 __all__ = [

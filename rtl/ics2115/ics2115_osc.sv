@@ -366,11 +366,13 @@ module ics2115_osc
                             ulaw_tbl_addr <= rom_data[7:0];
                         // sample1 will be latched from ulaw_tbl_data next cycle
                     end else if (osc_conf_8bit_linear) begin
-                        // 8-bit signed: extract byte, sign-extend << 8
+                        // 8-bit signed: extract byte and shift left by 8.
+                        // MAME/reference: (s8(sample_byte) << 8).  The low
+                        // byte must be zero, not sign/LSB replicated.
                         if (~cur_addr[0])
-                            sample1 <= $signed({ rom_data[15:8], {8{rom_data[8]}}});
+                            sample1 <= $signed({ rom_data[15:8], 8'h00 });
                         else
-                            sample1 <= $signed({ rom_data[7:0],  {8{rom_data[0]}}});
+                            sample1 <= $signed({ rom_data[7:0],  8'h00 });
                     end else begin
                         // 16-bit: ROM word is the sample (word-aligned assumption)
                         sample1 <= $signed(rom_data);
@@ -395,11 +397,11 @@ module ics2115_osc
                         else
                             ulaw_tbl_addr <= rom_data[7:0];
                     end else if (osc_conf_8bit_linear) begin
-                        // Decode sample2 from ROM data
+                        // Decode sample2 from ROM data: (s8(sample_byte) << 8).
                         if (~next_addr[0])
-                            sample2 <= $signed({ rom_data[15:8], {8{rom_data[8]}}});
+                            sample2 <= $signed({ rom_data[15:8], 8'h00 });
                         else
-                            sample2 <= $signed({ rom_data[7:0],  {8{rom_data[0]}}});
+                            sample2 <= $signed({ rom_data[7:0],  8'h00 });
                     end else begin
                         sample2 <= $signed(rom_data);
                     end

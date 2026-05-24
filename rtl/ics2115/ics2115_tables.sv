@@ -27,15 +27,20 @@ module ics2115_tables (
 );
 
     // =========================================================================
-    // Volume table (decision D008: patent-derived integer formula)
-    // vol[i] = ((0x100 | (i & 0xFF)) << (VOLUME_BITS - 9)) >> (15 - (i >> 8))
-    // VOLUME_BITS = 15: left shift by 6, right shift by (15 - exponent)
+    // Volume table — hardware-measured integer formula
+    // exp  = i[11:8]
+    // mant = i[7:0]
+    // exp == 0: mant >> 7
+    // exp >  0: ceil(((0x100 | mant) << exp) / 512)
     // =========================================================================
     logic [15:0] vol_mem [0:4095];
 
     initial begin
         for (int i = 0; i < 4096; i++) begin
-            vol_mem[i] = ((16'h100 | i[7:0]) << 6) >> (15 - i[11:8]);
+            if ((i >> 8) == 0)
+                vol_mem[i] = (i & 8'hff) >> 7;
+            else
+                vol_mem[i] = ((((16'h100 | (i & 8'hff)) << ((i >> 8) - 1)) + 16'hff) >> 8);
         end
     end
 
@@ -45,26 +50,30 @@ module ics2115_tables (
     end
 
     // =========================================================================
-    // Pan law table
-    // panlaw[0] = 0xFFF (full attenuation — special case)
-    // panlaw[i] = 16 - floor(log2(i)) via priority encoder
+    // Pan law table — hardware-measured 16-step attenuation table.
+    // Indexed by pan_addr[7:4]. Entry 0 is full attenuation; 12'hfff is
+    // equivalent to the measured 4096 for the 12-bit volume index range because
+    // the post-pan index is clamped to zero when <= 0.
     // =========================================================================
     always_comb begin
-        if (pan_addr == 8'd0) begin
-            pan_data = 12'hFFF;
-        end else begin
-            casez (pan_addr)
-                8'b1???_????: pan_data = 12'd9;    // log2 = 7, 16 - 7 = 9
-                8'b01??_????: pan_data = 12'd10;   // log2 = 6
-                8'b001?_????: pan_data = 12'd11;   // log2 = 5
-                8'b0001_????: pan_data = 12'd12;   // log2 = 4
-                8'b0000_1???: pan_data = 12'd13;   // log2 = 3
-                8'b0000_01??: pan_data = 12'd14;   // log2 = 2
-                8'b0000_001?: pan_data = 12'd15;   // log2 = 1
-                8'b0000_0001: pan_data = 12'd16;   // log2 = 0
-                default:      pan_data = 12'd0;
-            endcase
-        end
+        case (pan_addr[7:4])
+            4'h0: pan_data = 12'hfff;
+            4'h1: pan_data = 12'd508;
+            4'h2: pan_data = 12'd364;
+            4'h3: pan_data = 12'd304;
+            4'h4: pan_data = 12'd248;
+            4'h5: pan_data = 12'd200;
+            4'h6: pan_data = 12'd168;
+            4'h7: pan_data = 12'd140;
+            4'h8: pan_data = 12'd116;
+            4'h9: pan_data = 12'd96;
+            4'ha: pan_data = 12'd76;
+            4'hb: pan_data = 12'd56;
+            4'hc: pan_data = 12'd40;
+            4'hd: pan_data = 12'd28;
+            4'he: pan_data = 12'd12;
+            4'hf: pan_data = 12'd0;
+        endcase
     end
 
     // =========================================================================

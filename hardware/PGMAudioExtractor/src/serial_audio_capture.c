@@ -128,6 +128,9 @@ static uint32_t build_capture_flags(void) {
     if (capture_stream_get_dropped_packets() != 0) {
         flags |= PGM_CAPTURE_FLAG_QUEUE_DROP;
     }
+    if (capture_stream_get_mode() != PGM_CAPTURE_STREAM_MODE_CONTINUOUS) {
+        flags |= PGM_CAPTURE_FLAG_TRIGGERED_MODE;
+    }
     return flags;
 }
 

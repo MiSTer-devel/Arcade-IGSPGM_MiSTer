@@ -88,6 +88,43 @@ typedef struct __attribute__((packed)) {
 
 Status packets provide periodic health/diagnostic information and do not contribute audio samples.
 
+### Type 3: control ACK
+
+Control ACK packets are emitted in response to host commands written to the same CDC serial endpoint. Payload C definition:
+
+```c
+typedef struct __attribute__((packed)) {
+    uint32_t cmd;
+    uint32_t seq;
+    uint32_t status;
+    uint32_t mode;
+    uint32_t value;
+} pgm_capture_control_payload_t;
+```
+
+Host command frame, written host-to-device:
+
+```c
+typedef struct __attribute__((packed)) {
+    uint32_t magic;    // 'PGMC' = 0x434d4750
+    uint16_t version;  // currently 1
+    uint16_t cmd;
+    uint32_t seq;
+    uint32_t arg;
+} pgm_capture_control_command_t;
+```
+
+Commands:
+
+- `1` `FLUSH`: clear firmware transmit queue; keep current mode.
+- `2` `CONTINUOUS`: clear queue and resume normal continuous streaming.
+- `3` `IDLE`: clear queue and stop queueing audio/status packets.
+- `4` `ARM_FRAMES`: clear queue, discard a small number of internal DMA blocks, then send the next `arg` stereo frames and return to idle.
+- `5` `ARM_BLOCKS`: clear queue, discard a small number of internal DMA blocks, then send the next `arg` audio blocks and return to idle.
+- `6` `STATUS`: return current control state in a control ACK.
+
+Continuous streaming remains the power-on/default mode. Triggered commands are intended for low-latency register-sweep tests where stale host/USB buffered audio must be avoided without closing and reopening the serial port.
+
 ## Flags
 
 Current flag definitions:
