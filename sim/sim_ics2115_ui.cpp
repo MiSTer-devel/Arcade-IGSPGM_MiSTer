@@ -153,6 +153,18 @@ const char *SampleFormatName(uint8_t oscConf)
     return "8-bit";
 }
 
+const char *VModeFamilyName(uint8_t volMode)
+{
+    switch (volMode & 0x03)
+    {
+        case 0: return "slow";
+        case 1: return "float";
+        case 2: return "linear";
+        case 3: return "float";
+        default: return "?";
+    }
+}
+
 template <int SampleCount>
 void PlotHistory(const char *id, const RingHistory<SampleCount> &history, ImVec2 size, float minValue, float maxValue)
 {
@@ -277,11 +289,23 @@ class Ics2115Window : public Window
         }
 
         const auto &state = result.value;
-        ImGui::Text("active=%u selected=%u reg=0x%02x vmode=0x%02x seq=%u/%u",
+        const Ics2115VoiceState *selectedVoice = nullptr;
+        for (const auto &voice : state.mVoices)
+        {
+            if (voice.mIndex == state.mOscSelect)
+            {
+                selectedVoice = &voice;
+                break;
+            }
+        }
+        const uint8_t selectedVMode = selectedVoice ? selectedVoice->mVolMode : 0;
+        ImGui::Text("active=%u selected=%u reg=0x%02x sel_vmode=0x%02x[%u %s] seq=%u/%u",
                     state.mActiveOsc,
                     state.mOscSelect,
                     state.mRegSelect,
-                    state.mVmode,
+                    selectedVMode,
+                    selectedVMode & 0x03,
+                    VModeFamilyName(selectedVMode),
                     state.mSeqState,
                     state.mSeqVoiceIdx);
         ImGui::Text("irq on=%d pending=0x%02x enabled=0x%02x osc_pend=%u vol_pend=%u on=%u stop=%u",
@@ -334,7 +358,7 @@ class Ics2115Window : public Window
 
         ImGui::Separator();
 
-        if (ImGui::BeginTable("ics_voices", 21, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit,
+        if (ImGui::BeginTable("ics_voices", 20, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit,
                               ImVec2(0, 420)))
         {
             ImGui::TableSetupScrollFreeze(0, 1);
@@ -356,7 +380,7 @@ class Ics2115Window : public Window
             ImGui::TableSetupColumn("VEnd");
             ImGui::TableSetupColumn("VIncr");
             ImGui::TableSetupColumn("Pan");
-            ImGui::TableSetupColumn("VMode");
+            ImGui::TableSetupColumn("VMode", ImGuiTableColumnFlags_WidthFixed, 72.0f);
             ImGui::TableSetupColumn("Flags");
             ImGui::TableHeadersRow();
 
@@ -382,7 +406,7 @@ class Ics2115Window : public Window
                 ImGui::TableNextColumn(); ImGui::Text("%07x", voice.mVolEnd);
                 ImGui::TableNextColumn(); ImGui::Text("%02x", voice.mVolIncr);
                 ImGui::TableNextColumn(); ImGui::Text("%02x", voice.mVolPan);
-                ImGui::TableNextColumn(); ImGui::Text("%02x", voice.mVolMode);
+                ImGui::TableNextColumn(); ImGui::Text("%02x[%u %s]", voice.mVolMode, voice.mVolMode & 0x03, VModeFamilyName(voice.mVolMode));
                 ImGui::TableNextColumn();
                 ImGui::Text("%s%s%s%s",
                             (voice.mOscConf & 0x80) ? "OI " : "",

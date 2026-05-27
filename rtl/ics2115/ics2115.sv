@@ -292,20 +292,12 @@ module ics2115
     end
 
     // =========================================================================
-    // Volume envelope rate counter
+    // Legacy volume-rate counter
     // =========================================================================
+    // Older HDL used ramp_cnt with vol_incr[7:6] as a global rate divider.  The
+    // measured VMode/VIncr behavior is now implemented per voice in
+    // ics2115_osc.  Keep ramp_cnt saved/restored for save-state compatibility.
     logic [8:0]  ramp_cnt;              // 9-bit counter, increments on sample_tick
-    logic        vol_rate_enable;       // gating signal for current voice's envelope
-
-    // Rate divider logic based on vol_incr[7:6] and ramp_cnt
-    always_comb begin
-        case (seq_voice_data.vol_incr[7:6])
-            2'd0: vol_rate_enable = 1'b1;                                       // every tick
-            2'd1: vol_rate_enable = (ramp_cnt[2:0] == seq_voice_idx[2:0]);      // every 8th
-            2'd2: vol_rate_enable = (ramp_cnt[5:0] == {3'd0, seq_voice_idx[2:0]});  // every 64th
-            2'd3: vol_rate_enable = (ramp_cnt[8:0] == {6'd0, seq_voice_idx[2:0]});  // every 512th
-        endcase
-    end
 
     // ramp_cnt increments once per sample_tick
     always_ff @(posedge clk or negedge reset_n) begin
@@ -388,8 +380,6 @@ module ics2115
         .irq_vol       (osc_irq_vol),
         .voice_in      (osc_voice_in),
         .voice_out     (osc_voice_out),
-        .vmode         (vmode),
-        .vol_rate_enable(vol_rate_enable),
         .rom_byte_addr (osc_rom_byte_addr),
         .rom_rd        (osc_rom_rd),
         .rom_data      (rom_data),
@@ -607,14 +597,14 @@ module ics2115
                 // 0x05: Wavesample loop end low
                 5'h05: reg_read_data = {reg_read_voice.osc_end[12:5], 8'h00};
 
-                // 0x06: Volume Increment (8-bit)
-                5'h06: reg_read_data = {8'h00, reg_read_voice.vol_incr};
+                // 0x06: Volume Increment — high byte
+                5'h06: reg_read_data = {reg_read_voice.vol_incr, 8'h00};
 
-                // 0x07: Volume Start — top 8 bits of 26-bit value (bits 25:18)
-                5'h07: reg_read_data = {8'h00, reg_read_voice.vol_start[25:18]};
+                // 0x07: Volume Start — high byte maps to bits 25:18
+                5'h07: reg_read_data = {reg_read_voice.vol_start[25:18], 8'h00};
 
-                // 0x08: Volume End — top 8 bits
-                5'h08: reg_read_data = {8'h00, reg_read_voice.vol_end[25:18]};
+                // 0x08: Volume End — high byte maps to bits 25:18
+                5'h08: reg_read_data = {reg_read_voice.vol_end[25:18], 8'h00};
 
                 // 0x09: Volume accumulator (bits 25:10 of 26-bit value)
                 5'h09: reg_read_data = reg_read_voice.vol_acc[25:10];
@@ -632,7 +622,7 @@ module ics2115
 
                 // 0x0D: Volume Envelope Control — stub for T02 IRQ work
                 5'h0D: begin
-                    if (vmode == 8'd0)
+                    if (reg_read_voice.vol_mode[1:0] == 2'd0)
                         reg_read_data = {(reg_read_voice.vol_ctrl[VOL_IRQ] ? 8'h81 : 8'h01), 8'h00};
                     else
                         reg_read_data = {8'h01, 8'h00};
@@ -665,6 +655,9 @@ module ics2115
 
                 // 0x11: Wavesample static address — saddr in high byte
                 5'h11: reg_read_data = {reg_read_voice.osc_saddr, 8'h00};
+
+                // 0x12: Per-voice VMode — only low two bits affect the rate family
+                5'h12: reg_read_data = {reg_read_voice.vol_mode, 8'h00};
 
                 default: reg_read_data = 16'd0;
             endcase
@@ -784,6 +777,8 @@ module ics2115
                 5'h04: result.osc_end[28:21]   = data[7:0];
                 5'h05: result.osc_end[12:5]    = data[7:0];
                 5'h06: result.vol_incr         = data[7:0];
+                5'h07: result.vol_start        = {data[7:0], 18'd0};
+                5'h08: result.vol_end          = {data[7:0], 18'd0};
                 5'h09: result.vol_acc[25:18]   = data[7:0];
                 5'h0A: result.osc_acc[28:21]   = data[7:0];
                 5'h0B: result.osc_acc[12:5]    = data[7:0];
@@ -793,6 +788,7 @@ module ics2115
                     result.osc_ctl = data[7:0];
                 end
                 5'h11: result.osc_saddr = data[7:0];
+                5'h12: result.vol_mode  = data[7:0];
                 default: ;
             endcase
         end else begin
@@ -800,8 +796,6 @@ module ics2115
                 5'h01: result.osc_fc[7:0]       = {data[7:1], 1'b0};
                 5'h02: result.osc_start[20:13]  = data[7:0];
                 5'h04: result.osc_end[20:13]    = data[7:0];
-                5'h07: result.vol_start         = {data[7:0], 18'd0};
-                5'h08: result.vol_end           = {data[7:0], 18'd0};
                 5'h09: begin
                     result.vol_acc[17:10] = data[7:0];
                     result.vol_acc[9:0]   = 10'd0;
@@ -1115,7 +1109,6 @@ module ics2115
                         if (reg_select < 8'h20) begin
                             case (reg_select[4:0])
                                 5'h0E: active_osc <= host_din[4:0];
-                                5'h12: vmode      <= host_din[7:0];
                                 default: begin
                                     if (host_voice_wr_can_buffer) begin
                                         host_fifo_voice[host_fifo_tail] <= osc_select;
@@ -1138,7 +1131,7 @@ module ics2115
                         // Low-byte write — per-voice writes are buffered, globals are direct.
                         if (reg_select < 8'h20) begin
                             case (reg_select[4:0])
-                                5'h0E, 5'h12: ;
+                                5'h0E: ;
                                 default: begin
                                     if (host_voice_wr_can_buffer) begin
                                         host_fifo_voice[host_fifo_tail] <= osc_select;

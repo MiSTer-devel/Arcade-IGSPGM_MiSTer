@@ -22,15 +22,9 @@ module ics2115_osc
     output logic        irq_osc,        // oscillator boundary IRQ fired
     output logic        irq_vol,        // volume boundary IRQ fired
 
-    // Volume envelope rate control
-    input  logic        vol_rate_enable, // from top-level rate counter
-
     // Voice state — read at start, written back at done
     input  voice_state_t voice_in,
     output voice_state_t voice_out,
-
-    // Vmode control — when 0, all voices contribute; when 1, only playing
-    input  logic [7:0]  vmode,
 
     // ROM interface — top-level translates byte addr to word addr
     output logic [23:0] rom_byte_addr,  // 24-bit byte address
@@ -70,7 +64,6 @@ module ics2115_osc
         ST_OSC_UPDATE       = 5'd11,
         ST_BOUNDARY_CHECK   = 5'd12,
         ST_VOL_ENV_UPDATE   = 5'd14,    // volume envelope accumulator update
-        ST_VOL_ENV_BOUNDARY = 5'd15,    // volume envelope boundary handling
         ST_DONE             = 5'd16
     } osc_state_t;
 
@@ -95,8 +88,8 @@ module ics2115_osc
 
     logic irq_osc_r, irq_vol_r;
 
-    // Volume envelope working registers
-    logic [14:0] vol_add;               // vol_incr[5:0] << 9, set in ST_VOL_ENV_UPDATE
+    // Volume envelope step derived from per-voice VMode/VIncr.
+    logic [25:0] vol_step;
 
     logic osc_conf_8bit;
     logic osc_conf_ulaw;
@@ -117,6 +110,48 @@ module ics2115_osc
     end
 
     logic [28:0] osc_save;
+
+    function automatic logic [25:0] calc_vol_step(
+        input logic [1:0] mode,
+        input logic [7:0] incr
+    );
+        logic [5:0] mant;
+        begin
+            mant = {1'b1, incr[4:0]};
+            calc_vol_step = 26'd0;
+
+            case (mode)
+                // Very slow mode.  Long hardware captures show no movement for
+                // incr <= 223 and period ~= 4177920 / (incr - 192) for 224..255.
+                2'b00: begin
+                    if (incr[7:5] == 3'b111)
+                        calc_vol_step = {16'd0, mant, 4'd0};       // mant * 16
+                end
+
+                // Compact/floating-style modes.  Only VMode[1:0] is considered
+                // significant; modes 1 and 3 share the same measured rate.
+                2'b01, 2'b11: begin
+                    if (incr != 8'd0) begin
+                        case (incr[6:5])
+                            2'd0: calc_vol_step = {13'd0, mant, 7'd0};  // mant * 128
+                            2'd1: calc_vol_step = {12'd0, mant, 8'd0};  // mant * 256
+                            2'd2: calc_vol_step = {11'd0, mant, 9'd0};  // mant * 512
+                            2'd3: calc_vol_step = {10'd0, mant, 10'd0}; // mant * 1024
+                        endcase
+                    end
+                end
+
+                // Linear mode: period ~= 65280 / incr.
+                2'b10: begin
+                    calc_vol_step = {8'd0, incr, 10'd0};          // incr * 1024
+                end
+            endcase
+        end
+    endfunction
+
+    always_comb begin
+        vol_step = calc_vol_step(v.vol_mode[1:0], v.vol_incr);
+    end
 
     // =========================================================================
     // Combinational signals for boundary/interpolation/mix
@@ -192,8 +227,7 @@ module ics2115_osc
             ST_MIX:            state_next = ST_OSC_UPDATE;
             ST_OSC_UPDATE:     state_next = ST_BOUNDARY_CHECK;
             ST_BOUNDARY_CHECK: state_next = ST_VOL_ENV_UPDATE;
-            ST_VOL_ENV_UPDATE:   state_next = ST_VOL_ENV_BOUNDARY;  // overridden to ST_DONE in datapath
-            ST_VOL_ENV_BOUNDARY: state_next = ST_DONE;
+            ST_VOL_ENV_UPDATE: state_next = ST_DONE;
             ST_DONE:             state_next = ST_IDLE;
             default:           state_next = ST_IDLE;
         endcase
@@ -227,7 +261,6 @@ module ics2115_osc
             pan_tbl_addr  <= 8'd0;
             ulaw_tbl_addr <= 8'd0;
             v             <= '0;
-            vol_add       <= 15'd0;
         end else if (ce) begin
             // Defaults — pulsed signals cleared each cycle
             done        <= 1'b0;
@@ -491,90 +524,54 @@ module ics2115_osc
                 end
 
                 // ─────────────────────────────────────────────────────────────
-                // VOL_ENV_UPDATE: Volume envelope accumulator update
-                // Advance vol_acc by vol_incr magnitude, check boundary
+                // VOL_ENV_UPDATE: Check boundary and handle loop/wrap/done
                 // ─────────────────────────────────────────────────────────────
-                ST_VOL_ENV_UPDATE: begin
-                    // Skip envelope if done, stopped, or rate not enabled
-                    if (v.vol_ctrl[VOL_DONE] || v.vol_ctrl[VOL_STOP] || !vol_rate_enable) begin
-                        // Jump straight to DONE, bypassing boundary check
-                        state <= ST_DONE;
-                    end else begin
-                        // vol_add = {vol_incr[5:0], 9'd0} — 6-bit magnitude left-shifted by 9
-                        vol_add <= {v.vol_incr[5:0], 9'd0};
-
-                        // Update accumulator: add or subtract vol_add (zero-extended to 26 bits)
-                        if (v.vol_ctrl[VOL_INVERT]) begin
-                            v.vol_acc <= v.vol_acc - {4'd0, v.vol_incr[5:0], 16'd0};
-                        end else begin
-                            v.vol_acc <= v.vol_acc + {4'd0, v.vol_incr[5:0], 16'd0};
-                        end
-                    end
-                end
-
-                // ─────────────────────────────────────────────────────────────
-                // VOL_ENV_BOUNDARY: Check boundary and handle loop/wrap/done
-                // Runs after VOL_ENV_UPDATE; vol_add was latched there
-                // ─────────────────────────────────────────────────────────────
-                ST_VOL_ENV_BOUNDARY: begin : vol_env_boundary_blk
+                ST_VOL_ENV_UPDATE: begin : vol_env_boundary_blk
                     // Compute distance to boundary using signed arithmetic
                     // vol_acc was already updated in the previous state
                     logic signed [26:0] vol_left;
-                    logic signed [26:0] new_vol;
+                    logic [25:0] next_vol;
 
-                    if (v.vol_ctrl[VOL_INVERT])
-                        vol_left = $signed({1'b0, v.vol_acc}) - $signed({1'b0, v.vol_start});
-                    else
-                        vol_left = $signed({1'b0, v.vol_end}) - $signed({1'b0, v.vol_acc});
-
-                    if (vol_left > 27'sd0) begin
-                        // Still within bounds — nothing to do, proceed to DONE
-                    end else begin
-                        // Boundary crossed or exactly reached
-
-                        // Fire IRQ if enabled
-                        if (v.vol_ctrl[VOL_IRQ]) begin
-                            v.vol_ctrl[VOL_IRQ_PEND] <= 1'b1;
-                            irq_vol_r <= 1'b1;
+                    // Skip envelope if done, stopped, or the selected VMode/VIncr
+                    // combination produces no measured accumulator movement.
+                    if (!(v.vol_ctrl[VOL_DONE] || v.vol_ctrl[VOL_STOP] || (vol_step == 26'd0))) begin
+                        // Update accumulator by the per-voice VMode/VIncr step.
+                        if (v.vol_ctrl[VOL_INVERT]) begin
+                            next_vol = v.vol_acc - vol_step;
+                            vol_left = $signed({1'b0, next_vol}) - $signed({1'b0, v.vol_start});
+                        end else begin
+                            next_vol = v.vol_acc + vol_step;
+                            vol_left = $signed({1'b0, v.vol_end}) - $signed({1'b0, next_vol});
                         end
 
-                        // 8-bit mode exception: skip wrap logic (per MAME)
-                        if (!osc_conf_8bit) begin
+                        if (vol_left >= 27'sd0) begin
+                            // Still within bounds
+                            v.vol_acc <= next_vol;
+                        end else begin
+                            // Boundary crossed or exactly reached
+
+                            // Fire IRQ if enabled
+                            if (v.vol_ctrl[VOL_IRQ]) begin
+                                v.vol_ctrl[VOL_IRQ_PEND] <= 1'b1;
+                                irq_vol_r <= 1'b1;
+                            end
+
                             if (v.vol_ctrl[VOL_LOOP]) begin
-                                if (!v.vol_ctrl[VOL_BIDIR]) begin
-                                    // Unidirectional loop: wrap around
-                                    // overshoot = -vol_left (positive magnitude)
+                                if (v.vol_ctrl[VOL_BIDIR]) begin
                                     if (!v.vol_ctrl[VOL_INVERT]) begin
-                                        // Forward: new = start + overshoot
-                                        new_vol = $signed({1'b0, v.vol_start}) - vol_left;
-                                        v.vol_acc <= new_vol[25:0];
-                                    end else begin
-                                        // Reverse: new = end - overshoot
-                                        new_vol = $signed({1'b0, v.vol_end}) + vol_left;
-                                        v.vol_acc <= new_vol[25:0];
+                                        v.vol_ctrl[VOL_INVERT] <= ~v.vol_ctrl[VOL_INVERT];
                                     end
                                 end else begin
-                                    // Bidirectional loop: bounce and flip direction
-                                    if (!v.vol_ctrl[VOL_INVERT]) begin
-                                        // Was going up, bounce from end: new = end - overshoot
-                                        new_vol = $signed({1'b0, v.vol_end}) + vol_left;
-                                        v.vol_acc <= new_vol[25:0];
+                                    if (v.vol_ctrl[VOL_INVERT]) begin
+                                        v.vol_acc <= v.vol_end - (v.vol_start - next_vol);
                                     end else begin
-                                        // Was going down, bounce from start: new = start + overshoot
-                                        new_vol = $signed({1'b0, v.vol_start}) - vol_left;
-                                        v.vol_acc <= new_vol[25:0];
+                                        v.vol_acc <= v.vol_start + (next_vol - v.vol_start);
                                     end
-                                    // Flip direction
-                                    v.vol_ctrl[VOL_INVERT] <= ~v.vol_ctrl[VOL_INVERT];
                                 end
                             end else begin
                                 // No loop: envelope is done
                                 v.vol_ctrl[VOL_DONE] <= 1'b1;
                             end
-                        end else begin
-                            // 8-bit mode: just mark done if no loop
-                            if (!v.vol_ctrl[VOL_LOOP])
-                                v.vol_ctrl[VOL_DONE] <= 1'b1;
                         end
                     end
                 end

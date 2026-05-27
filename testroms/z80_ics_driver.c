@@ -372,8 +372,8 @@ static void ics_init_chip(void)
         ics_write_reg(voice, 0x10, Z80_ICS_WIDTH_UPPER8, 0x0f); /* stop */
         ics_write_reg(voice, 0x00, Z80_ICS_WIDTH_UPPER8, 0x00);
         ics_write_reg(voice, 0x0d, Z80_ICS_WIDTH_UPPER8, 0x03);
-        ics_write_reg(voice, 0x07, Z80_ICS_WIDTH_LOWER8, 0x01);
-        ics_write_reg(voice, 0x08, Z80_ICS_WIDTH_LOWER8, 0x01);
+        ics_write_reg(voice, 0x07, Z80_ICS_WIDTH_UPPER8, 0x01);
+        ics_write_reg(voice, 0x08, Z80_ICS_WIDTH_UPPER8, 0x01);
     }
 
     /* BIOS writes active oscillators again near the end of its init path. */

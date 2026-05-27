@@ -63,7 +63,7 @@ package ics2115_pkg;
     // vol_incr:  8-bit — volume increment register
     // vol_pan:   8-bit — pan value (0-255)
     // vol_ctrl:  8-bit — volume control flags
-    // vol_mode:  8-bit — mode register (reserved, write 0)
+    // vol_mode:  8-bit — per-voice volume envelope mode (REG_VMODE, low 2 bits significant)
     //
     // state_on:   1-bit — voice is keyed on
     // =========================================================================
@@ -84,7 +84,7 @@ package ics2115_pkg;
         logic [7:0]  vol_incr;    // increment register
         logic [7:0]  vol_pan;     // pan value (0-255)
         logic [7:0]  vol_ctrl;    // volume control flags
-        logic [7:0]  vol_mode;    // mode (reserved)
+        logic [7:0]  vol_mode;    // volume envelope mode (low 2 bits significant)
 
         // Voice runtime state
         logic        state_on;    // voice is keyed on

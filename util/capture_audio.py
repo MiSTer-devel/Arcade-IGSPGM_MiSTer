@@ -247,6 +247,7 @@ class AudioStreamReader:
         raise AudioControlError("timed out waiting for audio control ACK")
 
     def flush(self, *, timeout: Optional[float] = 1.0) -> dict:
+        self.latest_samples.clear()
         return self._send_control(CONTROL_CMD_FLUSH, 0, timeout=timeout)
 
     def set_continuous(self, *, timeout: Optional[float] = 1.0) -> dict:
@@ -256,9 +257,11 @@ class AudioStreamReader:
         return self._send_control(CONTROL_CMD_IDLE, 0, timeout=timeout)
 
     def arm_frames(self, count: int, *, timeout: Optional[float] = 1.0) -> dict:
+        self.latest_samples.clear()
         return self._send_control(CONTROL_CMD_ARM_FRAMES, count, timeout=timeout)
 
     def arm_blocks(self, count: int, *, timeout: Optional[float] = 1.0) -> dict:
+        self.latest_samples.clear()
         return self._send_control(CONTROL_CMD_ARM_BLOCKS, count, timeout=timeout)
 
     def get_control_status(self, *, timeout: Optional[float] = 1.0) -> dict:
