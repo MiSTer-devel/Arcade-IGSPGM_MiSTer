@@ -156,13 +156,12 @@ module ram_cache #(
 
                 // Burst-write the dirty victim back to DDR (4 x 64-bit beats).
                 WB_DDR: begin
-                    ddr.write    <= 1'b1;
-                    ddr.addr     <= v_base;
-                    ddr.burstcnt <= BEATS[7:0];
-                    ddr.wdata    <= wb_beat[beat];
                     if (~ddr.busy) begin
+                        ddr.write    <= 1'b1;
+                        ddr.addr     <= v_base + { 27'd0, beat, 3'b0 };
+                        ddr.burstcnt <= 1;
+                        ddr.wdata    <= wb_beat[beat];
                         if (beat == BEATS[1:0]-2'd1) begin
-                            ddr.write <= 1'b0;
                             beat  <= 2'd0;
                             state <= FILL_REQ;
                         end else begin
@@ -173,6 +172,7 @@ module ram_cache #(
 
                 FILL_REQ: begin
                     if (~ddr.busy) begin
+                        ddr.write    <= 1'b0;
                         ddr.read     <= 1'b1;
                         ddr.addr     <= m_base;
                         ddr.burstcnt <= BEATS[7:0];
@@ -181,15 +181,17 @@ module ram_cache #(
                 end
 
                 FILL: begin
-                    if (~ddr.busy) ddr.read <= 1'b0;
-                    if (ddr.rdata_ready) begin
-                        // both words written via cdata ports A/B (above)
-                        beat <= beat + 2'd1;
-                        if (beat == BEATS[1:0]-2'd1) begin
-                            ctag[m_idx]   <= m_tag;
-                            cvalid[m_idx] <= 1'b1;
-                            cdirty[m_idx] <= 1'b0;   // freshly filled, clean
-                            state         <= IDLE;
+                    if (~ddr.busy) begin
+                        ddr.read <= 1'b0;
+                        if (ddr.rdata_ready) begin
+                            // both words written via cdata ports A/B (above)
+                            beat <= beat + 2'd1;
+                            if (beat == BEATS[1:0]-2'd1) begin
+                                ctag[m_idx]   <= m_tag;
+                                cvalid[m_idx] <= 1'b1;
+                                cdirty[m_idx] <= 1'b0;   // freshly filled, clean
+                                state         <= IDLE;
+                            end
                         end
                     end
                 end

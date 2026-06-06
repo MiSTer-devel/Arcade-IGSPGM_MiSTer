@@ -64,11 +64,11 @@ reg [2:0] sprite_component_index;
 reg [8:0] sprite_index;
 reg [8:0] sprite_count /* verilator public_flat */;
 
-reg [15:0] sprite_d0[256] /* verilator public_flat */;
-reg [15:0] sprite_d1[256] /* verilator public_flat */;
-reg [15:0] sprite_d2[256] /* verilator public_flat */;
-reg [15:0] sprite_d3[256] /* verilator public_flat */;
-reg [15:0] sprite_d4[256] /* verilator public_flat */;
+(* ramstyle = "M10K" *) reg [15:0] sprite_d0[256] /* verilator public_flat */;
+(* ramstyle = "M10K" *) reg [15:0] sprite_d1[256] /* verilator public_flat */;
+(* ramstyle = "M10K" *) reg [15:0] sprite_d2[256] /* verilator public_flat */;
+(* ramstyle = "M10K" *) reg [15:0] sprite_d3[256] /* verilator public_flat */;
+(* ramstyle = "M10K" *) reg [15:0] sprite_d4[256] /* verilator public_flat */;
 
 reg [10:0] spr_x;
 reg [9:0] spr_y;
@@ -80,11 +80,12 @@ reg spr_y_flip;
 reg [5:0] spr_width;
 reg [11:0] spr_scaled_width;
 reg [8:0] spr_height;
-reg spr_y_zoom;
-reg spr_x_zoom;
 reg [4:0] spr_scale_x, spr_scale_y;
+wire spr_y_zoom = spr_scale_y[4];
+wire spr_x_zoom = spr_scale_x[4];
 reg [31:0] spr_x_scale_bits;
 reg [31:0] spr_y_scale_bits;
+reg [22:0] spr_brom_addr;
 
 
 wire [8:0] spr_y_end = spr_height - 9'd1;
@@ -278,7 +279,6 @@ arom_offset_t pixel0_offset, pixel1_offset;
 wire buffer_ready;
 reg draw_complete;
 reg [15:0] initial_addr_low;
-reg [22:0] tmp_brom_addr;
 
 // tmp_* are temporary
 // spr_* are immutable per sprite values
@@ -288,6 +288,8 @@ always_ff @(posedge clk) begin
     reg [15:0] tmp_shifter;
     reg [3:0] tmp_shift_count;
     reg [31:0] tmp_addr32;
+
+    reg tmp_1bit;
 
 
     if (reset) begin
@@ -306,22 +308,13 @@ always_ff @(posedge clk) begin
         end
 
         if (spr_load) begin
-            spr_x <= sprite_d0[sprite_index][10:0];
-            spr_x_zoom <= sprite_d0[sprite_index][15];
-            spr_y <= sprite_d1[sprite_index][9:0];
-            spr_y_zoom <= sprite_d1[sprite_index][15];
-            tmp_brom_addr <= { sprite_d2[sprite_index][6:0], sprite_d3[sprite_index] };
-            spr_prio <= sprite_d2[sprite_index][7];
-            spr_palette <= sprite_d2[sprite_index][12:8];
-            
-            spr_x_flip <= sprite_d2[sprite_index][13];
-            spr_y_flip <= sprite_d2[sprite_index][14];
-            
-            spr_height <= sprite_d4[sprite_index][8:0];
-            spr_width <= sprite_d4[sprite_index][14:9];
+            {spr_scale_x, spr_x} <= sprite_d0[sprite_index];
+            {spr_scale_y, tmp_1bit, spr_y} <= sprite_d1[sprite_index];
 
-            spr_scale_x <= sprite_d0[sprite_index][15:11];
-            spr_scale_y <= sprite_d1[sprite_index][15:11];
+            {spr_y_flip, spr_x_flip, spr_palette, spr_prio, spr_brom_addr[22:16]} <= sprite_d2[sprite_index][14:0];
+            spr_brom_addr[15:0] <= sprite_d3[sprite_index];
+            
+            {spr_width, spr_height} <= sprite_d4[sprite_index][14:0];
 
             spr <= sprite_state[sprite_index];
             spr_saved <= sprite_state[sprite_index];           
@@ -332,9 +325,9 @@ always_ff @(posedge clk) begin
         begin
             // this stuff happens the next cycle after spr_load
             if (spr_y_flip) begin
-                spr_brom_base_addr <= tmp_brom_addr + 32'd3 + ({17'b0, spr_width} * {14'b0, spr_height});
+                spr_brom_base_addr <= spr_brom_addr + 32'd3 + ({17'b0, spr_width} * {14'b0, spr_height});
             end else begin
-                spr_brom_base_addr <= tmp_brom_addr;
+                spr_brom_base_addr <= spr_brom_addr;
             end
             spr_scaled_width <= scaled_width(spr_scale_x, spr_width);
             spr_x_scale_bits <= scale_pattern[spr_scale_x];
