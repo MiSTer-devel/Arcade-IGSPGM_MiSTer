@@ -59,10 +59,6 @@ module PGM(
     input       [1:0] ss_index,
     output      [3:0] ss_state_out,
 
-    input      [23:0] bram_addr,
-    input       [7:0] bram_data,
-    input             bram_wr,
-
     input             sync_fix,
 
     input             pause,
@@ -75,13 +71,34 @@ module PGM(
 
 wire clk = clk_50m;
 
-ddr_if ddr_ss(), ddr_arom();
+ddr_if ddr_ss(), ddr_arom(), ddr_arm(), ddr_prot(), ddr_iram(), ddr_lo(), ddr_lo2(), ddr_lo3();
 
-ddr_mux ddr_mux(
+// DDR arbitration (priority: savestates > sprite A-ROM > external ARM ROM >
+// protection ROM cache > internal RAM cache).  Each protection memory has its
+// own cache so they never thrash each other (exrom 8MB, internal ROM, iram).
+ddr_mux ddr_mux_hi(
     .clk,
     .x(ddr),
     .a(ddr_ss),
-    .b(ddr_arom)
+    .b(ddr_lo)
+);
+ddr_mux ddr_mux_lo(
+    .clk,
+    .x(ddr_lo),
+    .a(ddr_arom),
+    .b(ddr_lo2)
+);
+ddr_mux ddr_mux_lo2(
+    .clk,
+    .x(ddr_lo2),
+    .a(ddr_arm),
+    .b(ddr_lo3)
+);
+ddr_mux ddr_mux_lo3(
+    .clk,
+    .x(ddr_lo3),
+    .a(ddr_prot),
+    .b(ddr_iram)
 );
 
 /////////////////////////////
@@ -102,7 +119,8 @@ wire [2:0]  cpu_fc;
 wire        cpu_bg_n;
 wire        cpu_br_n;
 wire        cpu_bgack_n;
-wire [15:0] cpu_data_in, cpu_data_out;
+wire [15:0] cpu_data_in /* verilator public_flat */;
+wire [15:0] cpu_data_out;
 wire [22:0] cpu_addr;
 wire [23:0] cpu_word_addr /* verilator public_flat */ = { cpu_addr, 1'b0 };
 wire IACKn = ~&cpu_fc;
@@ -347,15 +365,27 @@ logic WORKRAMn;
 logic IGS023n;
 logic IGS026_Xn;
 logic IOn;
+logic IGS025n;
+logic IGS022_RAMn;
+logic ARM_SHAREn;
+logic ARM_LATCHn;
 
 //wire sdr_dtack_n = sdr_cpu_req != sdr_cpu_ack;
 wire sdr_dtack_n;
 
 wire igs023_dtack_n;
 
+// Stall the 68000 while the IGS022 protection engine is running so that an
+// IGS025 "execute" write completes only after the command (DMA/6d/...) has
+// finished 
+// TODO - this can't be what games do because the carts can't access DTACK
+wire igs022_busy;
+wire prot_dtack_n = ~IGS025n & igs022_busy;
+
 wire dtack_n = sdr_dtack_n
              | pre_sdr_dtack_n
-             | igs023_dtack_n;
+             | igs023_dtack_n
+             | prot_dtack_n;
 
 wire [2:0] IPLn;
 wire DTACKn = dtack_n;
@@ -475,21 +505,37 @@ address_translator address_translator(
     .IOn,
     .IGS023n,
     .IGS026_Xn,
+    .IGS025n,
+    .IGS022_RAMn,
+    .ARM_SHAREn,
+    .ARM_LATCHn,
 
     .SS_SAVEn,
     .SS_RESETn,
     .SS_VECn
 );
 
+wire [15:0] rom_q_cleartext;
+rom_decrypt rom_decrypt(
+    .game        (game),
+    .word_addr   (cpu_addr),
+    .rom_word_in (rom_q),
+    .rom_word_out(rom_q_cleartext)
+);
+
 assign cpu_data_in = ~SS_SAVEn ? ss_irq_handler[cpu_addr[3:0]] :
                      ~SS_RESETn ? ss_reset_vector[cpu_addr[1:0]] :
                      ~SS_VECn ? ( cpu_addr[0] ? 16'h0000 : 16'h00ff ) :
-                     ~ROMn ? {rom_q[7:0], rom_q[15:8]} :
+                     ~ROMn ? rom_q_cleartext :
                      ~WORKRAMn ? workram_q :
                      ~IGS023n ? igs023_q :
                      ~IOn ? io_q :
                      ~asic3_cs_n ? asic3_q :
                      ~IGS026_Xn ? igs026_x_q :
+                     ~IGS025n ? igs025_q :
+                     ~IGS022_RAMn ? igs022_ram_q :
+                     ~ARM_SHAREn ? igs027a_share_q :
+                     ~ARM_LATCHn ? igs027a_latch_q :
                      16'd0;
 
 wire [15:0] workram_addr;
@@ -820,6 +866,164 @@ pgm_asic3 #(.SS_IDX(SSIDX_ASIC3)) asic3(
     .cpu_cs_n(asic3_cs_n),
 
     .ssbus(ssb[SSIDX_ASIC3])
+);
+
+// ---- Shared DDR protection cache --------------------------------------------
+// igs027a (ARM) and igs022 are mutually exclusive per game, so one cache (its
+// tag/data block RAM) serves whichever is active.  The active engine drives the
+// single request port; rdata/ready fan out to both.
+wire arm_game = (game == GAME_KOVSH) || (game == GAME_PHOTOY2K) || (game == GAME_KOV2);
+wire i22_game = (game == GAME_KILLBLD) || (game == GAME_DRGW3);
+
+wire [31:0] a27_cache_addr, i22_cache_addr;
+wire        a27_cache_req,  i22_cache_req;
+wire        a27_cache_write;
+wire [31:0] a27_cache_wdata;
+wire [3:0]  a27_cache_be;
+wire [31:0] prot_cache_rdata;
+wire        prot_cache_ready;
+
+prot_cache prot_cache(
+    .clk, .reset,
+    .req    (arm_game ? a27_cache_req   : (i22_game ? i22_cache_req : 1'b0)),
+    .write  (arm_game ? a27_cache_write : 1'b0),
+    .addr   (arm_game ? a27_cache_addr  : i22_cache_addr),
+    .wdata  (a27_cache_wdata),
+    .byteena(a27_cache_be),
+    .rdata  (prot_cache_rdata),
+    .ready  (prot_cache_ready),
+    .ddr    (ddr_prot)
+);
+
+// IGS022 + IGS025 protection (The Killing Blade / Dragon World 3).
+wire [15:0] igs025_q, igs022_ram_q;
+wire        prot_trigger;
+wire [7:0]  prot_region = (game == GAME_KILLBLD) ? 8'h21 :  // World
+                          (game == GAME_DRGW3)   ? 8'h06 :  // World
+                          8'h00;
+
+igs025 #(.SS_IDX(SSIDX_IGS025)) igs025(
+    .clk,
+    .reset,
+    .game,
+    .region(prot_region),
+
+    .cpu_addr(cpu_word_addr[3:0]),
+    .cpu_din(cpu_data_out),
+    .cpu_dout(igs025_q),
+    .cpu_uds_n(cpu_ds_n[1]),
+    .cpu_lds_n(cpu_ds_n[0]),
+    .cpu_rw(cpu_rw),
+    .cpu_cs_n(IGS025n),
+
+    .trigger(prot_trigger),
+
+    .ssbus(ssb[SSIDX_IGS025])
+);
+
+igs022 #(
+    .SS_IDX(SSIDX_IGS022),
+    .SS_IDX_RAM_LO(SSIDX_IGS022_RAM_LO),
+    .SS_IDX_RAM_HI(SSIDX_IGS022_RAM_HI)
+) igs022(
+    .clk,
+    .reset,
+
+    .trigger(prot_trigger),
+    .busy(igs022_busy),
+
+    .cpu_word_addr(cpu_word_addr[13:1]),
+    .cpu_din(cpu_data_out),
+    .cpu_dout(igs022_ram_q),
+    .cpu_uds_n(cpu_ds_n[1]),
+    .cpu_lds_n(cpu_ds_n[0]),
+    .cpu_rw(cpu_rw),
+    .cpu_cs_n(IGS022_RAMn),
+
+    // private data ROM via the shared DDR cache
+    .cache_addr(i22_cache_addr),
+    .cache_req(i22_cache_req),
+    .cache_rdata(prot_cache_rdata),
+    .cache_ready(prot_cache_ready),
+
+    .ssbus(ssb[SSIDX_IGS022]),
+    .ss_ram_lo(ssb[SSIDX_IGS022_RAM_LO]),
+    .ss_ram_hi(ssb[SSIDX_IGS022_RAM_HI])
+);
+
+// IGS027A ARM7 protection (pgm_arm type1/2/3).  TYPE1 (kovsh/photoy2k).
+//
+// The protection MCU runs from a device-specific XTAL, so its clock enable is
+// configurable per game (master clk is 50MHz, cen = clk * n/m):
+//   20 MHz (2/5)  : type1 (kovsh/photoy2k), type2/3 base parts (55857E/F/G)
+//   22 MHz (11/25): martmast/dw2001/dwpc (type2), dmnfrnt/theglad (type3)
+//   24 MHz (12/25): dmnfrntpcb/happy6 (type3)
+logic [9:0] arm_cen_n, arm_cen_m;
+always_comb begin
+    case (game)
+        // 22 MHz and 24 MHz devices are added here as type2/3 land.
+        default: begin arm_cen_n = 10'd2; arm_cen_m = 10'd5; end // 20 MHz
+    endcase
+end
+
+wire ce_arm, ce_arm_ph2;
+jtframe_frac_cen #(2) arm_cen (
+    .clk(clk),
+    .cen_in(clocks_enabled),
+    .n(arm_cen_n),
+    .m(arm_cen_m),
+    .cen({ce_arm_ph2, ce_arm}),
+    .cenb()
+);
+
+wire [31:0] arm_dbg_pc /* verilator public_flat */;
+wire [31:0] arm_dbg_cpsr /* verilator public_flat */;
+wire [15:0] igs027a_latch_q, igs027a_share_q;
+
+// Shared-RAM halfword offset within the window: type1 64B @0x4f0000 (5-bit),
+// type2 64KB @0xd00000 (15-bit).  FIQ is set by the type2 latch write (0xd10000).
+wire [14:0] arm_share_hw = (game == GAME_KOV2) ? cpu_word_addr[15:1]
+                                               : {10'd0, cpu_word_addr[5:1]};
+wire        arm_fiq_set  = (game == GAME_KOV2) & ~ARM_LATCHn & ~cpu_rw & ~(&cpu_ds_n);
+// type2/3 games have an external ARM ROM served from DDR; type1 (kovsh/photoy2k)
+// does not, and must not route its 0x08xxxxxx stub probes into the DDR cache.
+wire        arm_has_exrom = (game == GAME_KOV2);
+
+igs027a #(.TYPE(1)) igs027a(
+    .clk,
+    .reset,
+    .ce(ce_arm),
+
+    // 68k command/response latch (type1 0x500000 / type2 0xd10000)
+    .m68k_latch_cs_n(ARM_LATCHn),
+    .m68k_latch_off(cpu_word_addr[1]),
+    .m68k_latch_din(cpu_data_out),
+    .m68k_latch_q(igs027a_latch_q),
+    .m68k_latch_we(~cpu_rw & ~(&cpu_ds_n)),
+
+    // 68k shared-RAM window (type1 0x4f0000 / type2 0xd00000)
+    .m68k_share_cs_n(ARM_SHAREn),
+    .m68k_share_hw(arm_share_hw),
+    .m68k_share_din(cpu_data_out),
+    .m68k_share_q(igs027a_share_q),
+    .m68k_share_we_u(~cpu_rw & ~cpu_ds_n[1]),
+    .m68k_share_we_l(~cpu_rw & ~cpu_ds_n[0]),
+
+    // internal ROM via the shared prot_cache; external ARM ROM via its own cache
+    .cache_addr(a27_cache_addr),
+    .cache_req(a27_cache_req),
+    .cache_write(a27_cache_write),
+    .cache_wdata(a27_cache_wdata),
+    .cache_be(a27_cache_be),
+    .cache_rdata(prot_cache_rdata),
+    .cache_ready(prot_cache_ready),
+    .ddr(ddr_arm),
+    .ddr_iram(ddr_iram),
+    .arm_has_exrom(arm_has_exrom),
+    .m68k_fiq_set(arm_fiq_set),
+
+    .dbg_pc(arm_dbg_pc),
+    .dbg_cpsr(arm_dbg_cpsr)
 );
 
 V3021 v3021(

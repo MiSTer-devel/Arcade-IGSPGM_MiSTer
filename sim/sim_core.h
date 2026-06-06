@@ -35,6 +35,7 @@ enum class MemoryRegion : int
     CART_MUSIC_ROM,
     CART_B_ROM,
     CART_A_ROM,
+    PROT_RAM,
 
     COUNT
 };

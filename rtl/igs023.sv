@@ -51,8 +51,8 @@ module IGS023 #(parameter SS_IDX=-1) (
 
     ddr_if.to_host    ddr,
 
-    output reg        irq6,
-    output reg        irq4,
+    output reg        irq6 /* verilator public_flat */,
+    output reg        irq4 /* verilator public_flat */,
 
     // Video interface
     output reg [14:0] vid_color,
@@ -335,8 +335,8 @@ end
 reg vblank_prev;
 reg hsync_prev;
 
-wire irq6_en = ctrl[14][3];
-wire irq4_en = ctrl[14][2];
+wire irq6_en /* verilator public_flat */ = ctrl[14][3];
+wire irq4_en /* verilator public_flat */ = ctrl[14][2];
 
 reg [5:0] irq4_cnt;
 always @(posedge clk) begin

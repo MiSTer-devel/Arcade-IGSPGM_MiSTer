@@ -117,10 +117,6 @@ wire rom_set_map_base;
 wire [3:0] rom_base_idx;
 wire [31:0] rom_map_base;
 
-wire [23:0] bram_addr;
-wire  [7:0] bram_data;
-wire        bram_wr;
-
 board_cfg_t board_cfg;
 
 reg cart_present /* verilator public_flat */;
@@ -162,10 +158,6 @@ rom_loader rom_loader(
     .sdr_rw(sdr_rom_rw),
 
     .ddr(ddr_romload_loader),
-
-    .bram_addr(bram_addr),
-    .bram_data(bram_data),
-    .bram_wr(bram_wr),
 
     .board_cfg(board_cfg),
 
@@ -265,11 +257,7 @@ PGM pgm_inst(
     .ss_do_restore(ss_do_restore),
     .ss_index(ss_index),
     .ss_state_out(ss_state_out),
-    
-    .bram_addr(bram_addr),
-    .bram_data(bram_data),
-    .bram_wr(bram_wr),
-    
+
     .sync_fix(sync_fix),
     
     .pause(pause)

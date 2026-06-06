@@ -12,6 +12,10 @@ module address_translator(
     output logic IGS023n,
     output logic IGS026_Xn,
     output logic IOn,
+    output logic IGS025n,
+    output logic IGS022_RAMn,
+    output logic ARM_SHAREn,
+    output logic ARM_LATCHn,
     output logic SS_SAVEn,
     output logic SS_RESETn,
     output logic SS_VECn
@@ -32,6 +36,10 @@ always_comb begin
     IGS023n = 1;
     IGS026_Xn = 1;
     IOn = 1;
+    IGS025n = 1;
+    IGS022_RAMn = 1;
+    ARM_SHAREn = 1;
+    ARM_LATCHn = 1;
 
     SS_SAVEn = 1;
     SS_RESETn = 1;
@@ -63,7 +71,35 @@ always_comb begin
         IGS023n = match_addr_n(cpu_word_addr, 16'h9000, 16'hff00) & match_addr_n(cpu_word_addr, 16'ha000, 16'hff00) & match_addr_n(cpu_word_addr, 16'hb000, 16'hff00);
         IGS026_Xn = match_addr_n(cpu_word_addr, 16'hc000, 16'hfe00);
         IOn = match_addr_n(cpu_word_addr, 16'hc080, 16'hffff);
-        
+
+        // IGS022/IGS025 protection (The Killing Blade / Dragon World 3).
+        if (game == GAME_KILLBLD || game == GAME_DRGW3) begin
+            // Shared protection RAM: 0x300000-0x303fff.
+            IGS022_RAMn = ~(cpu_word_addr[23:14] == 10'h0c0);
+            // Exclude the shared-RAM window from the ROM decode.
+            ROMn = ROMn | ~IGS022_RAMn;
+        end
+
+        // IGS025: killbld @ 0xd40000-0xd40003, drgw3 @ 0xda5610-0xda5613.
+        if (game == GAME_KILLBLD)
+            IGS025n = ~(cpu_word_addr[23:2] == 22'h350000);
+        else if (game == GAME_DRGW3)
+            IGS025n = ~(cpu_word_addr[23:2] == 22'h369584);
+
+        // IGS027A ARM (kovsh / type1): shared RAM @0x4f0000-0x4f003f,
+        // command/response latch @0x500000-0x500003.
+        if (game == GAME_KOVSH || game == GAME_PHOTOY2K) begin
+            ARM_SHAREn = ~(cpu_word_addr[23:6] == 18'h13c00);  // 0x4f0000-0x4f003f
+            ARM_LATCHn = ~(cpu_word_addr[23:2] == 22'h140000); // 0x500000-0x500003
+            ROMn = ROMn | ~ARM_SHAREn | ~ARM_LATCHn;           // carve out of ROM window
+        end
+
+        // IGS027A type2 (kov2): shared RAM 0xd00000-0xd0ffff (64KB),
+        // latch 0xd10000-0xd10001.  These sit above ROM space, no carve-out.
+        if (game == GAME_KOV2) begin
+            ARM_SHAREn = ~(cpu_word_addr[23:16] == 8'hd0);     // 0xd00000-0xd0ffff
+            ARM_LATCHn = ~(cpu_word_addr[23:1] == 23'h688000); // 0xd10000-0xd10001
+        end
     end
 end
 /* verilator lint_on CASEX */

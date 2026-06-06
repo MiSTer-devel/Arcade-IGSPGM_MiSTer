@@ -38,10 +38,6 @@ module rom_loader
 
     ddr_if.to_host ddr,
 
-    output reg [23:0] bram_addr,
-    output reg [7:0] bram_data,
-    output reg bram_wr,
-
     output board_cfg_t board_cfg,
 
     output reg  [3:0] base_idx,
@@ -73,8 +69,7 @@ typedef enum logic [4:0] {
     SDR_DATA_WAIT,
     DDR_DATA,
     DDR_DATA_WRITE,
-    DDR_DATA_WAIT,
-    BRAM_DATA
+    DDR_DATA_WAIT
 } stage_t;
 
 stage_t stage = BOARD_CFG_0;
@@ -90,7 +85,6 @@ assign ddr.read = 0;
 assign ddr.byteenable = 8'hff;
 
 always @(posedge sys_clk) begin
-    bram_wr <= 0;
     ddr.acquire <= 0;
     set_map_base <= 0;
 
@@ -122,12 +116,10 @@ always @(posedge sys_clk) begin
             set_map_base <= 1;
             offset <= 0;
 
-            if (storage == STORAGE_SDR)
-                stage <= SDR_DATA;
-            else if (storage == STORAGE_DDR)
+            if (storage == STORAGE_DDR)
                 stage <= DDR_DATA;
             else
-                stage <= BRAM_DATA;
+                stage <= SDR_DATA;   // all remaining regions are SDR
         end
         SDR_DATA: if (ioctl_wr) begin
             sdr_buffer[7:0] <= ioctl_data;
@@ -184,15 +176,6 @@ always @(posedge sys_clk) begin
                     stage <= DDR_DATA;
             end
         end
-        BRAM_DATA: if (ioctl_wr) begin
-            bram_addr <= base_addr[23:0] + offset[23:0];
-            bram_data <= ioctl_data;
-            bram_wr <= 1;
-            offset <= offset + 1;
-
-            if (offset == ( size - 1)) stage <= REGION_IDX;
-        end
-
         default: begin
         end
     endcase

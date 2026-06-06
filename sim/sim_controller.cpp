@@ -389,6 +389,7 @@ ControllerResult<MemoryRegion> SimController::ParseRegion(const std::string &nam
         {"BIOS_TILE_ROM", MemoryRegion::BIOS_TILE_ROM}, {"BIOS_MUSIC_ROM", MemoryRegion::BIOS_MUSIC_ROM},
         {"CART_TILE_ROM", MemoryRegion::CART_TILE_ROM}, {"CART_MUSIC_ROM", MemoryRegion::CART_MUSIC_ROM},
         {"CART_B_ROM", MemoryRegion::CART_B_ROM},       {"CART_A_ROM", MemoryRegion::CART_A_ROM},
+        {"PROT_RAM", MemoryRegion::PROT_RAM},
     };
 
     for (const auto &entry : kRegions)

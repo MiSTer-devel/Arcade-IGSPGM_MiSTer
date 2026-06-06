@@ -245,6 +245,11 @@ static const char *gGameNames[N_GAMES] = {
     "ddpdojblkbl",
     "kovbl",
     "kovplusbl",
+    "killbld",
+    "drgw3",
+    "kovsh",
+    "photoy2k",
+    "kov2",
 };
 
 static std::string gLoadedGameShortName = "unknown";
@@ -456,6 +461,216 @@ static void LoadKovplusbl()
     LoadKovblCommon("kovplusbl", "kovplusbl", 0x35806d1b);
 }
 
+// Load the 64KB IGS022 protection data ROM into DDR (shared prot_cache).
+// On real hardware this arrives via the rom_loader DDR path (LOAD_REGIONS
+// index 8 -> PROT_ROM_DDR_BASE); the sim writes it to the DDR model directly.
+static bool LoadIgs022ProtRom(const char *name, uint32_t crc)
+{
+    return LoadDdrData(name, crc, PROT_ROM_DDR_BASE);
+}
+
+static void LoadKillbld()
+{
+    LoadPgm();
+
+    AddRomZip("killbld");
+
+    // Encrypted 68000 program (decrypted in RTL).  Single WORD_SWAP ROM.
+    LoadSdramData16be("p0300_v109.u9", 0x2fcee215, CART_PROG_ROM_SDR_BASE, 0, 0x200000);
+    LoadSdramData("pgm_t0300.u14", 0x0922f7d9, CART_TILE_ROM_SDR_BASE);
+    LoadDdrData("pgm_a0300.u9", 0x3f9455d3, CART_A_ROM_DDR_BASE + 0x0000000);
+    LoadDdrData("pgm_a0301.u10", 0x92776889, CART_A_ROM_DDR_BASE + 0x0400000);
+    LoadDdrData("pgm_a0303.u11", 0x33f5cc69, CART_A_ROM_DDR_BASE + 0x0800000);
+    LoadDdrData("pgm_a0306.u12", 0xcc018a8e, CART_A_ROM_DDR_BASE + 0x0c00000);
+    LoadDdrData("pgm_a0307.u2", 0xbc772e39, CART_A_ROM_DDR_BASE + 0x1000000);
+    LoadSdramData("pgm_b0300.u13", 0x7f876981, CART_B_ROM_SDR_BASE + 0x0000000);
+    LoadSdramData("pgm_b0302.u14", 0xeea9c502, CART_B_ROM_SDR_BASE + 0x0400000);
+    LoadSdramData("pgm_b0303.u15", 0x77a9652e, CART_B_ROM_SDR_BASE + 0x0800000);
+    LoadSdramData("pgm_m0300.u1", 0x93159695, CART_MUSIC_ROM_SDR_BASE);
+
+    LoadIgs022ProtRom("kb_u2_v109.u2", 0xde3eae63);
+
+    gSimCore.mTop->rootp->sim_top__DOT__cart_present = 1;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_prog_base = 0x100000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_tile_base = 0x180000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_music_base = 0x400000;
+
+    gLoadedGameShortName = "killbld";
+    gSimCore.SetGame(GAME_KILLBLD);
+}
+
+static void LoadDrgw3()
+{
+    LoadPgm();
+
+    AddRomZip("drgw3");
+
+    // Encrypted 68000 program (decrypted in RTL).  Two LOAD16_BYTE ROMs:
+    //   dw3_v106_u13.u13 -> even byte addresses (high byte of each 68k word)
+    //   dw3_v106_u12.u12 -> odd  byte addresses (low  byte of each 68k word)
+    // The CPU-facing word read = SDRAM[2k]<<8 | SDRAM[2k+1] (see prog_decrypt
+    // comment in PGM.sv), so write even bytes from u13 and odd bytes from u12.
+    {
+        std::vector<uint8_t> uEven, uOdd;
+        if (LoadFileByNameOrCrc("dw3_v106_u13.u13", 0x28284e22, uEven) &&
+            LoadFileByNameOrCrc("dw3_v106_u12.u12", 0xc3f6838b, uOdd))
+        {
+            const size_t half = std::min(uEven.size(), uOdd.size());
+            std::vector<uint8_t> prog(half * 2);
+            for (size_t k = 0; k < half; k++)
+            {
+                prog[2 * k + 0] = uEven[k];
+                prog[2 * k + 1] = uOdd[k];
+            }
+            gSimCore.mSDRAM->Write(CART_PROG_ROM_SDR_BASE,
+                                   static_cast<uint32_t>(prog.size()), prog.data());
+            printf("Loaded %zu bytes interleaved drgw3 program to SDRAM 0x%08X\n",
+                   prog.size(), CART_PROG_ROM_SDR_BASE);
+        }
+    }
+
+    LoadSdramData("pgm_t0400.u18", 0xb70f3357, CART_TILE_ROM_SDR_BASE);
+    LoadDdrData("pgm_a0400.u9", 0xdd7bfd40, CART_A_ROM_DDR_BASE + 0x0000000);
+    LoadDdrData("pgm_a0401.u10", 0xcab6557f, CART_A_ROM_DDR_BASE + 0x0400000);
+    LoadSdramData("pgm_b0400.u13", 0x4bb87cc0, CART_B_ROM_SDR_BASE);
+    LoadSdramData("pgm_m0400.u1", 0x031eb9ce, CART_MUSIC_ROM_SDR_BASE);
+
+    LoadIgs022ProtRom("dw3_text_u15.u15", 0x03dc4fdf);
+
+    gSimCore.mTop->rootp->sim_top__DOT__cart_present = 1;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_prog_base = 0x100000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_tile_base = 0x180000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_music_base = 0x400000;
+
+    gLoadedGameShortName = "drgw3";
+    gSimCore.SetGame(GAME_DRGW3);
+}
+
+
+// Load the 16KB IGS027A internal ARM ROM into DDR (shared prot_cache).
+// On real hardware this arrives via the rom_loader DDR path (LOAD_REGIONS
+// index 9 -> PROT_INT_ROM_DDR_BASE); raw bytes, little-endian as the ARM reads.
+static bool LoadIgs027aIntRom(const char *name, uint32_t crc)
+{
+    return LoadDdrData(name, crc, PROT_INT_ROM_DDR_BASE);
+}
+
+static void LoadKovsh()
+{
+    LoadPgm();
+    AddRomZip("kovsh");
+    AddRomZip("kov");
+
+    // 68000 program (not encrypted; protection is the ARM), WORD_SWAP.
+    LoadSdramData16be("pgm_p0605_v104.u1", 0x7c78e5f3, CART_PROG_ROM_SDR_BASE, 0, 0x400000);
+    LoadSdramData("pgm_t0600.u11", 0x4acc1ad6, CART_TILE_ROM_SDR_BASE);
+    LoadDdrData("pgm_a0600.u1", 0xd8167834, CART_A_ROM_DDR_BASE + 0x0000000);
+    LoadDdrData("pgm_a0601.u3", 0xff7a4373, CART_A_ROM_DDR_BASE + 0x0800000);
+    LoadDdrData("pgm_a0602.u5", 0xe7a32959, CART_A_ROM_DDR_BASE + 0x1000000);
+    LoadDdrData("pgm_a0613.u7", 0xec31abda, CART_A_ROM_DDR_BASE + 0x1800000);
+    LoadDdrData("pgm_a0604_v200.u9", 0x26b59fd3, CART_A_ROM_DDR_BASE + 0x1a00000);
+    LoadSdramData("pgm_b0600.u6", 0x7d3cd059, CART_B_ROM_SDR_BASE + 0x0000000);
+    LoadSdramData("pgm_b0601.u8", 0xa0bb1c2f, CART_B_ROM_SDR_BASE + 0x0800000);
+    LoadSdramData("pgm_b0602_v200.u10", 0x9df77934, CART_B_ROM_SDR_BASE + 0x0c00000);
+    LoadSdramData("pgm_m0600.u4", 0x3ada4fd6, CART_MUSIC_ROM_SDR_BASE);
+
+    LoadIgs027aIntRom("kovsh_v100_china.asic", 0x0f09a5c1);
+
+    gSimCore.mTop->rootp->sim_top__DOT__cart_present = 1;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_prog_base = 0x100000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_tile_base = 0x180000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_music_base = 0x400000;
+
+    gLoadedGameShortName = "kovsh";
+    gSimCore.SetGame(GAME_KOVSH);
+}
+
+static void LoadPhotoy2k()
+{
+    LoadPgm();
+    AddRomZip("photoy2k");
+
+    // 68000 program (encrypted; decrypted in RTL), WORD_SWAP, 2MB.
+    LoadSdramData16be("pgm_p0701_v105.u2", 0xfab142e0, CART_PROG_ROM_SDR_BASE, 0, 0x200000);
+    LoadSdramData("pgm_t0700.u11", 0x93943b4d, CART_TILE_ROM_SDR_BASE);
+    LoadDdrData("pgm_a0700.u2", 0x503c855b, CART_A_ROM_DDR_BASE + 0x0000000);
+    LoadDdrData("pgm_a0701.u4", 0x845e11a8, CART_A_ROM_DDR_BASE + 0x0800000);
+    LoadDdrData("pgm_a0702.u3", 0x42239e1b, CART_A_ROM_DDR_BASE + 0x1000000);
+    LoadSdramData("pgm_b0700.u7", 0x8cd027f6, CART_B_ROM_SDR_BASE + 0x0000000);
+    LoadSdramData("photo_y2k_cg_v101_u6.u6", 0xda02ec3e, CART_B_ROM_SDR_BASE + 0x0800000);
+    LoadSdramData("pgm_m0700.u5", 0xacc7afce, CART_MUSIC_ROM_SDR_BASE);
+
+    LoadIgs027aIntRom("igs027a_photoy2k_v100_china.asic", 0x1a0b68f6);
+
+    gSimCore.mTop->rootp->sim_top__DOT__cart_present = 1;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_prog_base = 0x100000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_tile_base = 0x180000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_music_base = 0x400000;
+
+    gLoadedGameShortName = "photoy2k";
+    gSimCore.SetGame(GAME_PHOTOY2K);
+}
+
+// pgm_kov2_decrypt (MAME pgmcrypt.cpp): the type2 external ARM ROM ("user1") is
+// stored with an address-bit XOR (no table).  Applied at load; the runtime
+// xor_table layer is applied in RTL by the igs027a wrapper at read time.
+static void DecryptKov2ArmRom(std::vector<uint8_t> &buf)
+{
+    const size_t n = buf.size() / 2;
+    for (size_t i = 0; i < n; i++)
+    {
+        uint16_t x = (uint16_t)buf[2 * i] | ((uint16_t)buf[2 * i + 1] << 8); // LE
+        if ((i & 0x040080) != 0x000080) x ^= 0x0001; // IGS27_CRYPT1_ALT
+        if ((i & 0x080030) == 0x080010) x ^= 0x0004; // IGS27_CRYPT3
+        if ((i & 0x000042) != 0x000042) x ^= 0x0008; // IGS27_CRYPT4_ALT
+        if ((i & 0x048100) == 0x048000) x ^= 0x0010; // IGS27_CRYPT5_ALT
+        if ((i & 0x022004) != 0x000004) x ^= 0x0020; // IGS27_CRYPT6_ALT
+        if ((i & 0x001800) != 0x000000) x ^= 0x0040; // IGS27_CRYPT7_ALT
+        if ((i & 0x000820) == 0x000820) x ^= 0x0080; // IGS27_CRYPT8_ALT
+        buf[2 * i]     = (uint8_t)(x & 0xff);
+        buf[2 * i + 1] = (uint8_t)(x >> 8);
+    }
+}
+
+static void LoadKov2()
+{
+    LoadPgm();
+    AddRomZip("kov2");
+
+    // 68000 program (plaintext, WORD_SWAP, 4MB).
+    LoadSdramData16be("v107_u18.u18", 0x661a5b2c, CART_PROG_ROM_SDR_BASE, 0, 0x400000);
+    LoadSdramData("pgm_t1200.u27", 0xd7e26609, CART_TILE_ROM_SDR_BASE);
+    LoadDdrData("pgm_a1200.u1", 0xceeb81d8, CART_A_ROM_DDR_BASE + 0x0000000);
+    LoadDdrData("pgm_a1201.u4", 0x21063ca7, CART_A_ROM_DDR_BASE + 0x0800000);
+    LoadDdrData("pgm_a1202.u6", 0x4bb92fae, CART_A_ROM_DDR_BASE + 0x1000000);
+    LoadDdrData("pgm_a1203.u8", 0xe73cb627, CART_A_ROM_DDR_BASE + 0x1800000);
+    LoadDdrData("pgm_a1204.u10", 0x14b4b5bb, CART_A_ROM_DDR_BASE + 0x2000000);
+    LoadSdramData("pgm_b1200.u5", 0xbed7d994, CART_B_ROM_SDR_BASE + 0x0000000);
+    LoadSdramData("pgm_b1201.u7", 0xf251eb57, CART_B_ROM_SDR_BASE + 0x0800000);
+    LoadSdramData("pgm_m1200.u3", 0xb0d88720, CART_MUSIC_ROM_SDR_BASE);
+
+    LoadIgs027aIntRom("kov2_v100_hongkong.asic", 0xe0d7679f);
+
+    // External ARM ROM (2MB, encrypted): decrypt, then place in DDR.
+    {
+        std::vector<uint8_t> buf;
+        if (LoadFileByNameOrCrc("v102_u19.u19", 0x462e2980, buf))
+        {
+            DecryptKov2ArmRom(buf);
+            gSimCore.mDDRMemory->LoadData(buf, CART_ARM_ROM_DDR_BASE, 1);
+            printf("Loaded %zu bytes (kov2-decrypted) ARM ROM to DDR 0x%08X\n",
+                   buf.size(), CART_ARM_ROM_DDR_BASE);
+        }
+    }
+
+    gSimCore.mTop->rootp->sim_top__DOT__cart_present = 1;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_prog_base = 0x100000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_tile_base = 0x180000;
+    gSimCore.mTop->rootp->sim_top__DOT__cart_music_base = 0x800000;
+
+    gLoadedGameShortName = "kov2";
+    gSimCore.SetGame(GAME_KOV2);
+}
 
 bool GameInit(Game game)
 {
@@ -490,6 +705,21 @@ bool GameInit(Game game)
         break;
     case GAME_KOVPLUSBL:
         LoadKovplusbl();
+        break;
+    case GAME_KILLBLD:
+        LoadKillbld();
+        break;
+    case GAME_DRGW3:
+        LoadDrgw3();
+        break;
+    case GAME_KOVSH:
+        LoadKovsh();
+        break;
+    case GAME_PHOTOY2K:
+        LoadPhotoy2k();
+        break;
+    case GAME_KOV2:
+        LoadKov2();
         break;
     default:
         return false;

@@ -76,7 +76,7 @@ LDLIBS=$(shell pkg-config --libs sdl2)
 
 HDL_SRC  = ../rtl/fx68k/hdl/verilator/fx68k.sv ../rtl/fx68k/hdl/verilator/fx68kAlu.sv ../rtl/fx68k/hdl/verilator/uaddrPla.sv
 HDL_SRC += ../rtl/system_consts.sv ../rtl/address_translator.sv
-HDL_SRC += ../rtl/rom_cache.sv
+HDL_SRC += ../rtl/rom_cache.sv ../rtl/rom_decrypt.sv
 HDL_SRC += ../rtl/PGM.sv ../rtl/video_timing.sv
 HDL_SRC += ../rtl/ram.sv ../rtl/jtframe_frac_cen.v ../rtl/memory_stream.sv ../rtl/savestates.sv ../rtl/ddram.sv
 HDL_SRC += ../rtl/audio_mix.sv ../sys/iir_filter.v
@@ -84,6 +84,8 @@ HDL_SRC += ../rtl/rom_loader.sv
 HDL_SRC += ../rtl/igs023.sv ../rtl/igs023_fg.sv ../rtl/igs023_bg.sv ../rtl/igs023_sprite.sv ../rtl/igs023_buffer.sv
 HDL_SRC += ../rtl/igs026_x.sv
 HDL_SRC += ../rtl/pgm_asic3.sv
+HDL_SRC += ../rtl/igs025_src_tables.sv ../rtl/igs025.sv ../rtl/igs022.sv
+HDL_SRC += ../rtl/ARM7TDMI/Alu.sv ../rtl/ARM7TDMI/Shifter.sv ../rtl/ARM7TDMI/Multiplier.sv ../rtl/ARM7TDMI/Decoder.sv ../rtl/ARM7TDMI/Control.sv ../rtl/ARM7TDMI/ARM7TDMI.sv ../rtl/arm_rom_cache.sv ../rtl/prot_cache.sv ../rtl/ram_cache.sv ../rtl/igs027a.sv
 HDL_SRC += ../rtl/v3021.sv
 HDL_SRC += ../rtl/ics2115/ics2115_pkg.sv ../rtl/ics2115/ics2115.sv ../rtl/ics2115/ics2115_osc.sv ../rtl/ics2115/ics2115_tables.sv
 HDL_SRC += sim_top.sv

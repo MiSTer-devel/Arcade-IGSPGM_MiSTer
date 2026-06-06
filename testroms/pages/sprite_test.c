@@ -55,6 +55,7 @@ static u8 sprite_y_scale = 0x10;
 static bool sprite_y_flip = false;
 static bool sprite_x_flip = false;
 
+static bool first_frame = true;
 
 void SpriteSimple(u8 idx, const SpriteDef *def, u8 color, s16 x, s16 y)
 {
@@ -76,10 +77,10 @@ void SpriteSimple(u8 idx, const SpriteDef *def, u8 color, s16 x, s16 y)
     spr->xflip = sprite_x_flip;
 }
 
-static u8 mode = 0;
-static u8 count = 0;
+static u8 mode = 4;
+static u8 count = 1;
 static u16 sprite_y = 0;
-static u16 sprite_x = 0;
+static u16 sprite_x = 120;
 
 static void update()
 {
@@ -103,7 +104,7 @@ static void update()
     changed |= gui_u16("Y", &sprite_y);
     gui_end();
 
-    if (changed)
+    if (changed || frame_count == 0)
     {
         switch(mode)
         {
@@ -164,6 +165,8 @@ static void update()
                 break;
         }
     }
+
+    frame_count++;
 }
 
 PAGE_REGISTER(sprite_test, init, update, NULL);
