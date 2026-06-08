@@ -26,6 +26,9 @@ package system_consts;
     parameter bit [31:0] PROT_INT_ROM_DDR_BASE = 32'h3C90_0000; // igs027a 16KB internal ROM
     parameter bit [31:0] PROT_IRAM_DDR_BASE    = 32'h3CA0_0000; // igs027a 64KB internal RAM (P2)
     parameter bit [31:0] PROT_ROM_DDR_BASE     = 32'h3CB0_0000; // igs022 64KB private data ROM
+    // IGS027A 68k/ARM shared RAM, two 64KB "chips" (was 128KB block RAM).  chip0
+    // @ base, chip1 @ base+0x10000.  Fronted by one ram_cache per chip.
+    parameter bit [31:0] PROT_SHARE_DDR_BASE   = 32'h3CC0_0000; // 2x 64KB shared RAM chips
 
     /*
     SDRAM map (128 MB, 2x 64 MB chips; chip = addr[26]).  Latency-sensitive
@@ -111,7 +114,9 @@ package system_consts;
         GAME_DDP2     = 8'd15,
         GAME_MARTMAST = 8'd16,
         GAME_DW2001   = 8'd17,
-        GAME_DWPC     = 8'd18
+        GAME_DWPC     = 8'd18,
+        GAME_DMNFRNT  = 8'd19,   // IGS027A type3 (55857G), 22 MHz
+        GAME_THEGLAD  = 8'd20    // IGS027A type3 (55857G), 22 MHz
     } game_t;
 
     typedef struct packed {

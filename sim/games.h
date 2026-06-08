@@ -24,6 +24,8 @@ enum Game : uint8_t
     GAME_MARTMAST,
     GAME_DW2001,
     GAME_DWPC,
+    GAME_DMNFRNT,
+    GAME_THEGLAD,
 
     N_GAMES,
 

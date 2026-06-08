@@ -76,12 +76,13 @@ module PGM(
 
 wire clk = clk_50m;
 
-ddr_if ddr_ss(), ddr_arm(), ddr_prot(), ddr_iram(), ddr_lo(), ddr_lo2();
+ddr_if ddr_ss(), ddr_arm(), ddr_prot(), ddr_iram(), ddr_share0(), ddr_share1(),
+       ddr_lo(), ddr_lo2(), ddr_lo3(), ddr_lo4();
 
 // DDR arbitration (priority: savestates > external ARM ROM > protection ROM
-// cache > internal RAM cache).  Each protection memory has its own cache so they
-// never thrash each other (exrom 8MB, internal ROM, iram).  The sprite A-ROM
-// moved to SDRAM (ch5), so it is no longer a DDR client.
+// cache > internal RAM cache > shared-RAM chip caches).  Each protection memory
+// has its own cache so they never thrash each other (exrom 8MB, internal ROM,
+// iram, 2x shared-RAM chips).  The sprite A-ROM moved to SDRAM (ch5).
 ddr_mux ddr_mux_hi(
     .clk,
     .x(ddr),
@@ -98,7 +99,19 @@ ddr_mux ddr_mux_lo2(
     .clk,
     .x(ddr_lo2),
     .a(ddr_prot),
-    .b(ddr_iram)
+    .b(ddr_lo3)
+);
+ddr_mux ddr_mux_lo3(
+    .clk,
+    .x(ddr_lo3),
+    .a(ddr_iram),
+    .b(ddr_lo4)
+);
+ddr_mux ddr_mux_lo4(
+    .clk,
+    .x(ddr_lo4),
+    .a(ddr_share0),
+    .b(ddr_share1)
 );
 
 /////////////////////////////
@@ -108,6 +121,7 @@ wire ce_20m, ce_dummy_10m;
 reg ce_cpu, ce_cpu_180;
 wire ce_8m, ce_16m, ce_33m;
 wire ce_50m = 1;
+wire igs027a_share_ready;   // 0 = 68k shared-RAM access stalled (defer 68k ce)
 /////////////////////////////
 
 
@@ -369,6 +383,7 @@ logic IGS025n;
 logic IGS022_RAMn;
 logic ARM_SHAREn;
 logic ARM_LATCHn;
+logic ARM_NMIn;
 
 //wire sdr_dtack_n = sdr_cpu_req != sdr_cpu_ack;
 wire sdr_dtack_n;
@@ -417,7 +432,9 @@ always_ff @(posedge clk) begin
     ce_cpu <= 0;
     ce_cpu_180 <= 0;
 
-    if (sdr_cpu_req == sdr_cpu_ack && clocks_enabled) begin
+    // Defer the 68k while a shared-RAM access is stalled on a DDR cache miss
+    // (igs027a_share_ready=0), the same way the ROM path stalls via sdr_cpu sync.
+    if (sdr_cpu_req == sdr_cpu_ack && clocks_enabled && igs027a_share_ready) begin
         if (ce_cpu_count[10:1] != ce_steady_count) begin
             ce_cpu <= ~ce_cpu_count[0];
             ce_cpu_180 <= ce_cpu_count[0];
@@ -509,6 +526,7 @@ address_translator address_translator(
     .IGS022_RAMn,
     .ARM_SHAREn,
     .ARM_LATCHn,
+    .ARM_NMIn,
 
     .SS_SAVEn,
     .SS_RESETn,
@@ -874,7 +892,10 @@ pgm_asic3 #(.SS_IDX(SSIDX_ASIC3)) asic3(
 // IGS027A ARM type2/3 games: 64KB shared RAM @0xd00000, latch @0xd10000 (FIQ),
 wire arm_type2 = (game == GAME_KOV2)  || (game == GAME_KOV2P)   || (game == GAME_DDP2) ||
                  (game == GAME_MARTMAST) || (game == GAME_DW2001) || (game == GAME_DWPC);
-wire arm_game = (game == GAME_KOVSH) || (game == GAME_PHOTOY2K) || arm_type2;
+// IGS027A type3 (55857G): dmnfrnt/theglad.  68k share 0x500000 (double-buffered),
+// latch 0x5c0300, ARM FIQ pulse on 68k write to 0x5c0000.
+wire arm_type3 = (game == GAME_DMNFRNT) || (game == GAME_THEGLAD);
+wire arm_game = (game == GAME_KOVSH) || (game == GAME_PHOTOY2K) || arm_type2 || arm_type3;
 wire i22_game = (game == GAME_KILLBLD) || (game == GAME_DRGW3);
 
 wire [31:0] a27_cache_addr, i22_cache_addr;
@@ -963,10 +984,12 @@ igs022 #(
 logic [9:0] arm_cen_n, arm_cen_m;
 always_comb begin
     case (game)
-        // 22 MHz (11/25) parts: martmast / dw2001 / dwpc (and type3 dmnfrnt/theglad).
+        // 22 MHz (11/25) parts: martmast / dw2001 / dwpc (type2), dmnfrnt / theglad (type3).
         GAME_MARTMAST,
         GAME_DW2001,
-        GAME_DWPC: begin arm_cen_n = 10'd11; arm_cen_m = 10'd25; end // 22 MHz
+        GAME_DWPC,
+        GAME_DMNFRNT,
+        GAME_THEGLAD: begin arm_cen_n = 10'd11; arm_cen_m = 10'd25; end // 22 MHz
         // 20 MHz (2/5): kovsh/photoy2k (type1), kov2/kov2p/ddp2 (type2 55857F).
         default:   begin arm_cen_n = 10'd2;  arm_cen_m = 10'd5;  end // 20 MHz
     endcase
@@ -989,12 +1012,17 @@ wire        igs027a_ss_ready;
 
 // Shared-RAM halfword offset within the window: type1 64B @0x4f0000 (5-bit),
 // type2 64KB @0xd00000 (15-bit).  FIQ is set by the type2 latch write (0xd10000).
-wire [14:0] arm_share_hw = arm_type2 ? cpu_word_addr[15:1]
-                                     : {10'd0, cpu_word_addr[5:1]};
+// Shared-RAM halfword index: type1 64B (5-bit), type2 64KB @0xd00000 and type3
+// 64KB @0x500000 both use the full 15-bit halfword index.
+wire [14:0] arm_share_hw = (arm_type2 | arm_type3) ? cpu_word_addr[15:1]
+                                                   : {10'd0, cpu_word_addr[5:1]};
+// type2 asserts FIQ on the latch write (0xd10000); type3 on a write to the
+// dedicated NMI address (0x5c0000).
 wire        arm_fiq_set  = arm_type2 & ~ARM_LATCHn & ~cpu_rw & ~(&cpu_ds_n);
+wire        arm_nmi_set  = arm_type3 & ~ARM_NMIn   & ~cpu_rw & ~(&cpu_ds_n);
 // type2/3 games have an external ARM ROM served from DDR; type1 (kovsh/photoy2k)
 // does not, and must not route its 0x08xxxxxx stub probes into the DDR cache.
-wire        arm_has_exrom = arm_type2;
+wire        arm_has_exrom = arm_type2 | arm_type3;
 
 igs027a #(
     .TYPE(1),
@@ -1043,8 +1071,13 @@ igs027a #(
     .cache_ready(prot_cache_ready),
     .ddr(ddr_arm),
     .ddr_iram(ddr_iram),
+    .ddr_share0(ddr_share0),
+    .ddr_share1(ddr_share1),
     .arm_has_exrom(arm_has_exrom),
+    .arm_type3(arm_type3),
     .m68k_fiq_set(arm_fiq_set),
+    .m68k_nmi_set(arm_nmi_set),
+    .m68k_share_ready(igs027a_share_ready),
 
     .dbg_pc(arm_dbg_pc),
     .dbg_cpsr(arm_dbg_cpsr)

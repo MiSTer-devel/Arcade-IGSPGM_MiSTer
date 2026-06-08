@@ -47,8 +47,13 @@ module igs027a #(
 
     ddr_if.to_host      ddr,
     ddr_if.to_host      ddr_iram,
+    ddr_if.to_host      ddr_share0,     // 68k/ARM shared RAM chip0 cache (DDR)
+    ddr_if.to_host      ddr_share1,     // 68k/ARM shared RAM chip1 cache (DDR)
     input  logic        arm_has_exrom,  // 1 = game has an external ARM ROM in DDR (type2/3)
+    input  logic        arm_type3,      // 1 = type3 (55857G): banked share, swapped latch/share map
     input  logic        m68k_fiq_set,   // 68k wrote the type2 latch (asserts FIQ)
+    input  logic        m68k_nmi_set,   // 68k wrote the type3 NMI addr 0x5c0000 (asserts FIQ)
+    output logic        m68k_share_ready, // 0 = 68k shared access stalled on a cache miss
 
     // ---- debug taps ----
     output logic [31:0] dbg_pc,
@@ -159,11 +164,12 @@ module igs027a #(
 
     wire [31:0] q_iram;        // ARM read port (iram)
     wire [31:0] q_xor;         // ARM/exrom read port (xortab)
-    wire [31:0] q_share;       // ARM read port (share)
-    wire [31:0] q_share_68k;   // 68k read port (share)
+    wire [31:0] q_share;       // ARM read result (shared chip cache)
+    wire        arm_share_ready; // ARM shared access ready (both chip caches)
     logic [31:0] latch_arm_w /* verilator public_flat */;   // ARM -> 68k
     logic [31:0] latch_68k_w /* verilator public_flat */;   // 68k -> ARM
     logic [31:0] counter /* verilator public_flat */;
+    logic        ram_sel /* verilator public_flat */;       // type3 double-buffered share bank
 
     wire sel_rom    = (arm_addr[31:14] == 18'd0);                  // 0x0-0x3fff internal ROM
 
@@ -173,14 +179,18 @@ module igs027a #(
     // the cache (mem_ready=cache_ready never completes) and hang the ARM.
     wire sel_exrom  = arm_has_exrom & (arm_addr[31:24] == 8'h08);   // 0x08000000 external (type2/3)
     wire sel_iram   = (arm_addr[31:24] == 8'h10) ||
-                      (arm_addr[31:24] == 8'h18);                  // type1 1KB / type2 64KB RAM
+                      (arm_addr[31:24] == 8'h18);                  // type1/2 RAM; type3 arm_ram2(0x10)/arm_ram(0x18)
     wire sel_lat_t1 = (arm_addr[31:4]  == 28'h4000000);            // 0x40000000-0x4000000f (type1)
-    wire sel_lat_t2 = (arm_addr[31:2]  == 30'h0e000000);           // 0x38000000 (type2)
-    wire sel_latch  = sel_lat_t1 || sel_lat_t2;
-    wire sel_sh_t1  = (arm_addr[31:8]  == 24'h508000);             // 0x50800000 (type1)
-    wire sel_sh_t2  = (arm_addr[31:16] == 16'h4800);               // 0x48000000 (type2)
-    wire sel_share  = sel_sh_t1 || sel_sh_t2;
-    wire sel_xor    = (arm_addr[31:12] == 20'h50000);              // 0x50000000-0x500003ff
+    // type2: 0x38=latch, 0x48=share.  type3 swaps them: 0x38=share, 0x48=latch.
+    wire sel_lat_t2 = ~arm_type3 & (arm_addr[31:2] == 30'h0e000000); // 0x38000000 (type2 latch)
+    wire sel_lat_t3 =  arm_type3 & (arm_addr[31:2] == 30'h12000000); // 0x48000000 (type3 latch)
+    wire sel_latch  = sel_lat_t1 || sel_lat_t2 || sel_lat_t3;
+    wire sel_sh_t1  = (arm_addr[31:8]  == 24'h508000);            // 0x50800000 (type1)
+    wire sel_sh_t2  = ~arm_type3 & (arm_addr[31:16] == 16'h4800); // 0x48000000 (type2 share)
+    wire sel_sh_t3  =  arm_type3 & (arm_addr[31:16] == 16'h3800); // 0x38000000 (type3 share, banked)
+    wire sel_share  = sel_sh_t1 || sel_sh_t2 || sel_sh_t3;
+    wire sel_bsel   =  arm_type3 & (arm_addr[31:2] == 30'h10000006); // 0x40000018 (type3 RAM bank select)
+    wire sel_xor    = (arm_addr[31:12] == 20'h50000);             // 0x50000000-0x500003ff (xortab / type3 scratch)
 
     wire [13:0] iram_idx  = arm_addr[15:2];
     wire [7:0]  xor_idx   = arm_addr[9:2];
@@ -202,9 +212,12 @@ module igs027a #(
         .ddr(ddr)
     );
 
-    // MAME: external_rom_r = rom ^ xor_table[off&0xff], xor_table[i]=(d<<24)|(d<<8)
+    // type1/2: external_rom_r = rom ^ xor_table[off&0xff] (runtime xortab).
+    // type3: the external ROM is fully decrypted at load and read raw (its
+    // 0x50000000 region is plain scratch RAM, not a decrypt key).
     wire [7:0]  exrom_xb   = q_xor[7:0];
-    wire [31:0] exrom_word = exrom_raw ^ {exrom_xb, 8'h00, exrom_xb, 8'h00};
+    wire [31:0] exrom_word = arm_type3 ? exrom_raw
+                                       : (exrom_raw ^ {exrom_xb, 8'h00, exrom_xb, 8'h00});
 
     logic [31:0] arm_rd_mux;
     always_comb begin
@@ -227,12 +240,14 @@ module igs027a #(
     logic [31:0] arm_addr_q;
     wire         arm_addr_stable = (arm_addr == arm_addr_q);
 
-    wire base_mem_ready = sel_rom              ? cache_ready
-                        : sel_exrom            ? exrom_ready
-                        : sel_iram             ? ramc_rd_ready
-                        : (sel_xor | sel_share)? arm_addr_stable
-                        :                        1'b1;
-    assign mem_ready = base_mem_ready & ramc_wr_ready;
+    wire base_mem_ready = sel_rom   ? cache_ready
+                        : sel_exrom ? exrom_ready
+                        : sel_iram  ? ramc_rd_ready
+                        : sel_xor   ? arm_addr_stable
+                        :             1'b1;
+    // sel_share readiness comes from the per-chip share caches (arm_share_ready),
+    // ANDed in globally so it also covers the deferred ARM shared-write commit.
+    assign mem_ready = base_mem_ready & ramc_wr_ready & arm_share_ready;
     logic arm_frozen_q;
     always_ff @(posedge clk) begin
         if (reset || ss_restore) begin
@@ -272,10 +287,14 @@ module igs027a #(
     wire  [31:0] wr_wmask = {{8{wr_be[3]}}, {8{wr_be[2]}}, {8{wr_be[1]}}, {8{wr_be[0]}}};
     wire wsel_iram   = (wr_addr[31:24] == 8'h10) || (wr_addr[31:24] == 8'h18);
     wire wsel_xor    = (wr_addr[31:12] == 20'h50000);
-    wire wsel_share  = (wr_addr[31:8]  == 24'h508000) || (wr_addr[31:16] == 16'h4800);
+    wire wsel_share  = (wr_addr[31:8]  == 24'h508000)                       // 0x50800000 (type1)
+                     | (~arm_type3 & (wr_addr[31:16] == 16'h4800))          // 0x48000000 (type2)
+                     | ( arm_type3 & (wr_addr[31:16] == 16'h3800));         // 0x38000000 (type3)
     wire wsel_lat_t1 = (wr_addr[31:4]  == 28'h4000000) && (wr_addr[3:2] == 2'd0);
-    wire wsel_lat_t2 = (wr_addr[31:2]  == 30'h0e000000);
-    wire wsel_latch  = wsel_lat_t1 || wsel_lat_t2;
+    wire wsel_lat_t2 = ~arm_type3 & (wr_addr[31:2] == 30'h0e000000);        // 0x38000000 (type2)
+    wire wsel_lat_t3 =  arm_type3 & (wr_addr[31:2] == 30'h12000000);        // 0x48000000 (type3)
+    wire wsel_latch  = wsel_lat_t1 || wsel_lat_t2 || wsel_lat_t3;
+    wire wsel_bsel   =  arm_type3 & (wr_addr[31:2] == 30'h10000006);        // 0x40000018 bank select
     wire [13:0] wiram_idx  = wr_addr[15:2];
     wire [7:0]  wxor_idx   = wr_addr[9:2];
     wire [13:0] wshare_idx = wr_addr[15:2];
@@ -288,12 +307,9 @@ module igs027a #(
     wire        m68k_shi = arm_has_exrom ?  m68k_share_hw[0]    // type2/3
                                          : ~m68k_share_hw[0];   // type1 (unchanged)
 
-    assign m68k_share_q = m68k_shi ? q_share_68k[31:16] : q_share_68k[15:0];
-
     assign m68k_latch_q = m68k_latch_off ? latch_arm_w[31:16] : latch_arm_w[15:0];
 
     wire xor_we   = arm_advance & wr_pend & wsel_xor;
-    wire share_we = arm_advance & wr_pend & wsel_share;
 
     wire        ramc_rd_ready, ramc_wr_ready;
 
@@ -307,12 +323,24 @@ module igs027a #(
     wire         ss_iram_own  = arm_frozen;
     wire [31:0]  ss_iram_addr = PROT_IRAM_DDR_BASE + {16'd0, ss_iram_word, 2'b00};
 
+    // type3 has two distinct internal RAMs: arm_ram (0x18000000, 256KB) and
+    // arm_ram2 (0x10000000, 1KB).  Map to non-overlapping windows in the iram
+    // DDR region (arm_ram 0..0x3ffff, arm_ram2 0x40000..0x403ff).  type1/2 alias
+    // 0x10/0x18 to a single 64KB window (unchanged).
+    function automatic logic [18:0] iram_off(input logic [31:0] a);
+        if (arm_type3)
+            iram_off = (a[31:24] == 8'h10) ? (19'h40000 | {9'd0, a[9:0]})  // arm_ram2 1KB
+                                           : {1'b0, a[17:0]};               // arm_ram 256KB
+        else
+            iram_off = {3'd0, a[15:0]};                                     // type1/2 64KB
+    endfunction
+
     wire        ramc_rd_req  = ss_iram_own ? ss_iram_rd  : sel_iram;
     wire [31:0] ramc_rd_addr = ss_iram_own ? ss_iram_addr
-                                           : (PROT_IRAM_DDR_BASE + {16'd0, arm_addr[15:0]});
+                                           : (PROT_IRAM_DDR_BASE + {13'd0, iram_off(arm_addr)});
     wire        ramc_wr_req  = ss_iram_own ? ss_iram_wr  : (wr_pend & wsel_iram);
     wire [31:0] ramc_wr_addr = ss_iram_own ? ss_iram_addr
-                                           : (PROT_IRAM_DDR_BASE + {16'd0, wr_addr[15:0]});
+                                           : (PROT_IRAM_DDR_BASE + {13'd0, iram_off(wr_addr)});
     wire [31:0] ramc_wr_data = ss_iram_own ? ssbus_iram.data[31:0] : arm_wdata;
     wire [3:0]  ramc_wr_be   = ss_iram_own ? 4'hf : wr_be;
 
@@ -392,39 +420,107 @@ module igs027a #(
         endcase
     end
 
-    // share: port A = 68k (16-bit half by m68k_shi), port B = ARM (read, or write commit).
-    // SS borrows port B while the ARM is frozen.
-    wire        m68k_share_we = ~m68k_share_cs_n & (m68k_share_we_u | m68k_share_we_l);
-    wire [3:0]  m68k_share_be = m68k_shi ? {m68k_share_we_u, m68k_share_we_l, 2'b00}
-                                         : {2'b00, m68k_share_we_u, m68k_share_we_l};
+    // ---- 68k/ARM shared RAM: one DDR-backed cache per 64KB "chip" ----------
+    // Real hw is two single-port 64KB chips.  type3: ARM on chip ram_sel, 68k on
+    // chip ~ram_sel (always opposite).  type1/2: both on chip0 (68k priority,
+    // handled inside share_cache).  The (undumped) internal ROM's shared-RAM seed
+    // is now done by the synthesized dummy ARM ROM (ARM stores), not here.
+    wire        bank_arm = arm_type3 ? ram_sel  : 1'b0;
+    wire        bank_68k = arm_type3 ? ~ram_sel : 1'b0;
+
+    // 68k access (gated off while frozen so SS owns the chips)
+    wire        m68k_we    = m68k_share_we_u | m68k_share_we_l;
+    wire        m68k_acc   = ~m68k_share_cs_n & ~arm_frozen;
+    wire        m68k_rd_q  = m68k_acc & ~m68k_we;
+    wire        m68k_wr_q  = m68k_acc &  m68k_we;
+    wire [15:0] m68k_off   = {m68k_sw, 2'b00};
+    wire [3:0]  m68k_be    = m68k_shi ? {m68k_share_we_u, m68k_share_we_l, 2'b00}
+                                      : {2'b00, m68k_share_we_u, m68k_share_we_l};
+    wire [31:0] m68k_wd    = {m68k_share_din, m68k_share_din};
+
+    // ARM access (read uses arm_addr, deferred write uses wr_addr)
+    wire        arm_sh_rd  = sel_share & ~arm_frozen;
+    wire        arm_sh_wr  = wr_pend & wsel_share & ~arm_frozen;
+    wire [15:0] arm_rd_off = {arm_addr[15:2], 2'b00};
+    wire [15:0] arm_wr_off = {wr_addr[15:2],  2'b00};
+
+    // savestate (128KB = 2 chips; ssbus word-addr bit14 selects the chip)
     wire        ss_share_sel = arm_frozen & (ssbus_share.select == SS_IDX_SHARE[7:0])
                               & ~ssbus_share.query & (ssbus_share.read | ssbus_share.write);
-    wire        ss_share_wr  = ss_share_sel & ssbus_share.write;
-    wire        sh_wren_b    = ss_share_sel ? ss_share_wr            : share_we;
-    wire [3:0]  sh_be_b      = ss_share_sel ? 4'hf                   : wr_be;
-    wire [13:0] sh_addr_b    = ss_share_sel ? ssbus_share.addr[13:0] : (share_we ? wshare_idx : share_idx);
-    wire [31:0] sh_data_b    = ss_share_sel ? ssbus_share.data[31:0] : arm_wdata;
-    dualport_ram_be #(.BYTES(4), .WIDTHAD(14)) share (
-        .clock_a(clk), .wren_a(m68k_share_we), .byteena_a(m68k_share_be),
-        .address_a(m68k_sw), .data_a({m68k_share_din, m68k_share_din}), .q_a(q_share_68k),
-        .clock_b(clk), .wren_b(sh_wren_b), .byteena_b(sh_be_b),
-        .address_b(sh_addr_b), .data_b(sh_data_b), .q_b(q_share)
+    wire        ss_chip = ssbus_share.addr[14];
+    wire [15:0] ss_off  = {ssbus_share.addr[13:0], 2'b00};
+    logic       ss_sh_rd, ss_sh_wr;
+
+    wire [31:0] c0_arm_q, c1_arm_q, c0_m68k_q, c1_m68k_q, c0_ss_q, c1_ss_q;
+    wire        c0_arm_rdy, c1_arm_rdy, c0_m68k_rdy, c1_m68k_rdy, c0_ss_rdy, c1_ss_rdy;
+
+    share_cache #(.CHIP_BASE(PROT_SHARE_DDR_BASE)) chip0 (
+        .clk(clk), .reset(reset),
+        .arm_rd (arm_sh_rd & ~bank_arm), .arm_rd_off(arm_rd_off),
+        .arm_wr (arm_sh_wr & ~bank_arm), .arm_wr_off(arm_wr_off),
+        .arm_wdata(arm_wdata), .arm_be(wr_be), .arm_q(c0_arm_q), .arm_ready(c0_arm_rdy),
+        .m68k_rd(m68k_rd_q & ~bank_68k), .m68k_wr(m68k_wr_q & ~bank_68k),
+        .m68k_off(m68k_off), .m68k_wdata(m68k_wd), .m68k_be(m68k_be),
+        .m68k_q(c0_m68k_q), .m68k_ready(c0_m68k_rdy),
+        .ss_rd(ss_sh_rd & ~ss_chip), .ss_wr(ss_sh_wr & ~ss_chip),
+        .ss_off(ss_off), .ss_wdata(ssbus_share.data[31:0]), .ss_q(c0_ss_q), .ss_ready(c0_ss_rdy),
+        .ddr(ddr_share0)
+    );
+    share_cache #(.CHIP_BASE(PROT_SHARE_DDR_BASE + 32'h0001_0000)) chip1 (
+        .clk(clk), .reset(reset),
+        .arm_rd (arm_sh_rd & bank_arm), .arm_rd_off(arm_rd_off),
+        .arm_wr (arm_sh_wr & bank_arm), .arm_wr_off(arm_wr_off),
+        .arm_wdata(arm_wdata), .arm_be(wr_be), .arm_q(c1_arm_q), .arm_ready(c1_arm_rdy),
+        .m68k_rd(m68k_rd_q & bank_68k), .m68k_wr(m68k_wr_q & bank_68k),
+        .m68k_off(m68k_off), .m68k_wdata(m68k_wd), .m68k_be(m68k_be),
+        .m68k_q(c1_m68k_q), .m68k_ready(c1_m68k_rdy),
+        .ss_rd(ss_sh_rd & ss_chip), .ss_wr(ss_sh_wr & ss_chip),
+        .ss_off(ss_off), .ss_wdata(ssbus_share.data[31:0]), .ss_q(c1_ss_q), .ss_ready(c1_ss_rdy),
+        .ddr(ddr_share1)
     );
 
-    typedef enum logic [1:0] { SH_IDLE, SH_RD, SH_WAIT } sh_t;
+    // ARM read result + readiness (non-target chip is idle -> ready=1)
+    assign q_share         = bank_arm ? c1_arm_q : c0_arm_q;
+    assign arm_share_ready = c0_arm_rdy & c1_arm_rdy;
+
+    // 68k read result (halfword) + stall to the 68k (via PGM ce-defer)
+    wire [31:0] m68k_share_word = bank_68k ? c1_m68k_q : c0_m68k_q;
+    assign m68k_share_q    = m68k_shi ? m68k_share_word[31:16] : m68k_share_word[15:0];
+    assign m68k_share_ready = c0_m68k_rdy & c1_m68k_rdy;
+
+    // savestate read result + readiness
+    wire [31:0] ss_share_q   = ss_chip ? c1_ss_q : c0_ss_q;
+    wire        ss_share_rdy = c0_ss_rdy & c1_ss_rdy;
+
+    typedef enum logic [1:0] { SH_IDLE, SH_RD, SH_WR, SH_WAIT } sh_t;
     sh_t sh_state;
     always_ff @(posedge clk) begin
-        ssbus_share.setup(SS_IDX_SHARE, 32'd16384, 2);
-        if (reset) sh_state <= SH_IDLE;
-        else case (sh_state)
-            SH_IDLE: if (ss_share_sel) begin
-                if (ssbus_share.write) begin ssbus_share.write_ack(SS_IDX_SHARE); sh_state <= SH_WAIT; end
-                else                   sh_state <= SH_RD;
-            end
-            SH_RD:   begin ssbus_share.read_response(SS_IDX_SHARE, {32'd0, q_share}); sh_state <= SH_WAIT; end
-            SH_WAIT: if (~(ssbus_share.read | ssbus_share.write)) sh_state <= SH_IDLE;
-            default: sh_state <= SH_IDLE;
-        endcase
+        ssbus_share.setup(SS_IDX_SHARE, 32'd32768, 2);   // 2x 64KB chips
+        if (reset) begin
+            sh_state <= SH_IDLE; ss_sh_rd <= 1'b0; ss_sh_wr <= 1'b0;
+        end else begin
+            case (sh_state)
+                SH_IDLE: begin
+                    ss_sh_rd <= 1'b0; ss_sh_wr <= 1'b0;
+                    if (ss_share_sel) begin
+                        if (ssbus_share.write) begin ss_sh_wr <= 1'b1; sh_state <= SH_WR; end
+                        else                   begin ss_sh_rd <= 1'b1; sh_state <= SH_RD; end
+                    end
+                end
+                SH_RD: if (ss_share_rdy) begin
+                    ss_sh_rd <= 1'b0;
+                    ssbus_share.read_response(SS_IDX_SHARE, {32'd0, ss_share_q});
+                    sh_state <= SH_WAIT;
+                end
+                SH_WR: if (ss_share_rdy) begin
+                    ss_sh_wr <= 1'b0;
+                    ssbus_share.write_ack(SS_IDX_SHARE);
+                    sh_state <= SH_WAIT;
+                end
+                SH_WAIT: if (~(ssbus_share.read | ssbus_share.write)) sh_state <= SH_IDLE;
+                default: sh_state <= SH_IDLE;
+            endcase
+        end
     end
 
     integer i;
@@ -438,6 +534,7 @@ module igs027a #(
             fiq_level   <= 1'b0;
             fiq_set_count <= 16'd0;
             fiq_clr_count <= 16'd0;
+            ram_sel     <= 1'b1;        // type3 dmnfrnt boots with bank 1 selected
         end else begin
             // ---- ARM write request capture (address phase) ----
             if (arm_advance) begin
@@ -445,6 +542,10 @@ module igs027a #(
                 wr_addr <= arm_addr;
                 wr_be   <= arm_byte_we;
             end
+
+            // type3 share-RAM bank select (ARM write to 0x40000018)
+            if (arm_advance && wr_pend && wsel_bsel)
+                ram_sel <= arm_wdata[0];
 
             if (arm_advance && wr_pend) begin
                 if (wsel_latch) begin
@@ -459,10 +560,13 @@ module igs027a #(
                 counter <= counter + 32'd1;   // type1 0x4000000c post-increments
             end
 
-            if (m68k_fiq_set)                  fiq_level <= 1'b1;
-            else if (arm_rd && sel_lat_t2)     fiq_level <= 1'b0;
-            if (m68k_fiq_set) fiq_set_count <= fiq_set_count + 16'd1;   // debug
-            if (arm_rd && sel_lat_t2) fiq_clr_count <= fiq_clr_count + 16'd1;
+            // type2 sets FIQ via the latch write (0xd10000) and clears on the ARM
+            // latch read (0x38000000); type3 sets via the NMI write (0x5c0000) and
+            // clears on the ARM latch read (0x48000000).
+            if (m68k_fiq_set || m68k_nmi_set)            fiq_level <= 1'b1;
+            else if (arm_rd && (sel_lat_t2 || sel_lat_t3)) fiq_level <= 1'b0;
+            if (m68k_fiq_set || m68k_nmi_set) fiq_set_count <= fiq_set_count + 16'd1;   // debug
+            if (arm_rd && (sel_lat_t2 || sel_lat_t3)) fiq_clr_count <= fiq_clr_count + 16'd1;
 
             if (~m68k_latch_cs_n && m68k_latch_we) begin
                 if (m68k_latch_off)
@@ -482,7 +586,7 @@ module igs027a #(
                         32'h43: latch_arm_w <= ssbus.data[31:0];
                         32'h44: latch_68k_w <= ssbus.data[31:0];
                         32'h45: counter     <= ssbus.data[31:0];
-                        32'h46: begin fiq_level <= ssbus.data[5]; wr_pend <= ssbus.data[4]; wr_be <= ssbus.data[3:0]; end
+                        32'h46: begin ram_sel <= ssbus.data[6]; fiq_level <= ssbus.data[5]; wr_pend <= ssbus.data[4]; wr_be <= ssbus.data[3:0]; end
                         32'h47: wr_addr     <= ssbus.data[31:0];
                         default: ;   // 0x00-0x3f core (io_state_*); 0x40-0x42 in other blocks
                     endcase
@@ -495,7 +599,7 @@ module igs027a #(
                         32'h43: ssbus.read_response(SS_IDX, {32'd0, latch_arm_w});
                         32'h44: ssbus.read_response(SS_IDX, {32'd0, latch_68k_w});
                         32'h45: ssbus.read_response(SS_IDX, {32'd0, counter});
-                        32'h46: ssbus.read_response(SS_IDX, {58'd0, fiq_level, wr_pend, wr_be});
+                        32'h46: ssbus.read_response(SS_IDX, {57'd0, ram_sel, fiq_level, wr_pend, wr_be});
                         32'h47: ssbus.read_response(SS_IDX, {32'd0, wr_addr});
                         default: ssbus.read_response(SS_IDX, {32'd0, arm_state_rdata}); // 0x00-0x3f
                     endcase
