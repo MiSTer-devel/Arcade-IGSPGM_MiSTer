@@ -27,14 +27,15 @@ module prot_cache (
     localparam int IDXB       = 9;                    // log2(LINES)
     localparam int TAGB       = 32 - OFFB - IDXB;     // 18
 
-    // Tag/valid in registers (combinational hit, bulk-reset valid).
-    logic [TAGB-1:0] cache_tag  [0:LINES-1];
     logic            cache_valid[0:LINES-1];
 
     wire [IDXB-1:0] idx      = addr[OFFB+IDXB-1 : OFFB];
     wire [TAGB-1:0] tag      = addr[31 : OFFB+IDXB];
     wire [2:0]      word_sel = addr[4:2];                 // 8 words/line
-    wire            hit      = req & cache_valid[idx] & (cache_tag[idx] == tag);
+
+    logic [31:OFFB] line_d;
+    always_ff @(posedge clk) line_d <= addr[31:OFFB];
+    wire addr_stable = (addr[31:OFFB] == line_d);
 
     // miss / fill FSM
     typedef enum logic [1:0] { IDLE, REQ, FILL } state_t;
@@ -60,13 +61,15 @@ module prot_cache (
     );
     assign rdata = data_q;
 
-    // Serve only when the word address has been stable since last cycle AND was
-    // a hit then, so data_q reflects settled line contents (not a same-cycle write).
-    logic [31:2] waddr_d;
-    logic        hit_d;
-    wire data_valid = hit & hit_d & (addr[31:2] == waddr_d);
+    wire tag_we = (state == FILL) & ddr.rdata_ready & (fill_beat == BEATS[1:0] - 2'd1);
+    wire [TAGB-1:0] tag_q;
+    dualport_ram_unreg #(.WIDTH(TAGB), .WIDTHAD(IDXB)) ctag_ram(
+        .clock_a(clk), .wren_a(tag_we), .address_a(fill_idx), .data_a(fill_tag), .q_a(),
+        .clock_b(clk), .wren_b(1'b0),   .address_b(idx),      .data_b('0),       .q_b(tag_q)
+    );
+    wire hit = req & addr_stable & cache_valid[idx] & (tag_q == tag);
 
-    assign ready = ~req | data_valid;
+    assign ready = ~req | hit;
 
     assign ddr.acquire    = (state != IDLE);
     assign ddr.write      = 1'b0;       // Phase 1: read-only
@@ -80,13 +83,8 @@ module prot_cache (
             ddr.read <= 1'b0;
             ddr.addr <= 32'd0;
             ddr.burstcnt <= 8'd0;
-            waddr_d  <= '0;
-            hit_d    <= 1'b0;
             for (i = 0; i < LINES; i = i + 1) cache_valid[i] <= 1'b0;
         end else begin
-            waddr_d <= addr[31:2];
-            hit_d   <= hit;
-
             case (state)
                 IDLE: begin
                     ddr.read <= 1'b0;
@@ -112,7 +110,7 @@ module prot_cache (
                         // both line words written via the cache_data ports
                         fill_beat <= fill_beat + 2'd1;
                         if (fill_beat == BEATS[1:0] - 2'd1) begin
-                            cache_tag[fill_idx]   <= fill_tag;
+                            // tag written to the tag BRAM via tag_we (above)
                             cache_valid[fill_idx] <= 1'b1;
                             state                 <= IDLE;
                         end

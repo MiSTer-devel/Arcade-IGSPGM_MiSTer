@@ -20,15 +20,17 @@ module arm_rom_cache #(
     localparam int IDXB       = $clog2(LINES);
     localparam int TAGB       = ADDR_BITS - OFFB - IDXB;
 
-    logic [TAGB-1:0]   cache_tag  [0:LINES-1];
     logic              cache_valid[0:LINES-1];
 
     wire [IDXB-1:0] idx = addr[OFFB+IDXB-1 : OFFB];
     wire [TAGB-1:0] tag = addr[ADDR_BITS-1 : OFFB+IDXB];
-    wire            hit = req & cache_valid[idx] & (cache_tag[idx] == tag);
 
     wire [1:0] beat_sel = addr[4:3];   // which 64-bit beat in the line
     wire       hi_sel   = addr[2];     // high/low 32 bits of the beat
+
+    logic [ADDR_BITS-1:OFFB] line_d;
+    always_ff @(posedge clk) line_d <= addr[ADDR_BITS-1:OFFB];
+    wire addr_stable = (addr[ADDR_BITS-1:OFFB] == line_d);
 
     typedef enum logic [1:0] { IDLE, REQ, FILL } state_t;
     state_t          state;
@@ -46,12 +48,15 @@ module arm_rom_cache #(
     );
     assign rdata = hi_sel ? data_q[63:32] : data_q[31:0];
 
-    // TODO - check if we need this hit_d delay
-    logic [ADDR_BITS-1:2] waddr_d;
-    logic                 hit_d;
-    wire data_valid = hit & hit_d & (addr[ADDR_BITS-1:2] == waddr_d);
+    wire tag_we = (state == FILL) & ddr.rdata_ready & (fill_beat == BEATS[1:0] - 2'd1);
+    wire [TAGB-1:0] tag_q;
+    dualport_ram_unreg #(.WIDTH(TAGB), .WIDTHAD(IDXB)) ctag_ram(
+        .clock_a(clk), .wren_a(tag_we), .address_a(fill_idx), .data_a(fill_tag), .q_a(),
+        .clock_b(clk), .wren_b(1'b0),   .address_b(idx),      .data_b('0),       .q_b(tag_q)
+    );
+    wire hit = req & addr_stable & cache_valid[idx] & (tag_q == tag);
 
-    assign ready = ~req | data_valid;
+    assign ready = ~req | hit;
 
     assign ddr.acquire    = (state != IDLE);
     assign ddr.write      = 1'b0;
@@ -65,13 +70,8 @@ module arm_rom_cache #(
             ddr.read <= 1'b0;
             ddr.addr <= 32'd0;
             ddr.burstcnt <= 8'd0;
-            waddr_d  <= '0;
-            hit_d    <= 1'b0;
             for (i = 0; i < LINES; i = i + 1) cache_valid[i] <= 1'b0;
         end else begin
-            waddr_d <= addr[ADDR_BITS-1:2];
-            hit_d   <= hit;
-
             case (state)
                 IDLE: begin
                     ddr.read <= 1'b0;
@@ -99,7 +99,7 @@ module arm_rom_cache #(
                         // line word written via the cache_data port (fill_we)
                         fill_beat <= fill_beat + 2'd1;
                         if (fill_beat == BEATS[1:0] - 2'd1) begin
-                            cache_tag[fill_idx]   <= fill_tag;
+                            // tag written to the tag BRAM via tag_we (above)
                             cache_valid[fill_idx] <= 1'b1;
                             state                 <= IDLE;
                         end
