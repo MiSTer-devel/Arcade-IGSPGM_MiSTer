@@ -1,8 +1,8 @@
 <misterromdescription>
-	<name>DoDonPachi Dai-Ou-Jou Black Label (Japan, 2002.10.07 Black Ver., bootleg Knights of Valour Super Heroes conversion)</name>
-	<setname>ddpdojblkbl</setname>
+	<name>Xiyou Shi E Zhuan Super (ver. 103, China, Tencent) (unprotected)</name>
+	<setname>olds103t</setname>
 	<rbf>IGSPGM</rbf>
-	<rotation>vertical</rotation>
+	<rotation>horizontal</rotation>
 	<mameversion>277</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
 	<switches default="ffff">
@@ -15,7 +15,7 @@
 		<dip name="Unused 2" bits="6" ids="On,Off"/>
 		<dip name="Debug" bits="7" ids="On,Off"/>
 	</switches>
-	<rom index="0" address="0x30000000" zip="pgm.zip|ddpdojblkbl.zip|ddpdojblk.zip|ddp3.zip">
+	<rom index="0" address="0x30000000" zip="pgm.zip|olds.zip|olds103t.zip">
         <!-- REGION_BIOS_PROG_ROM  = 00 -->
         <!-- REGION_BIOS_TILE_ROM  = 01 -->
         <!-- REGION_BIOS_MUSIC_ROM = 02 -->
@@ -26,7 +26,7 @@
         <!-- REGION_CART_B_ROM     = 07 -->
 
         <!-- SYSTEM INFO -->
-		<part>0b 00</part>
+		<part>00 00</part>
 
         <!-- BIOS PROG -->
 		<part>00 00020000 00000000</part>
@@ -42,28 +42,32 @@
 
         <!-- CART PROG -->
         <part>03 00400000 00100000</part>
-        <part name="ddp_doj_u1.bin" crc="eb4ab06a"/>
+        <part name="p0500.v103" crc="17e32e14"/>
 
         <!-- CART TILE -->
-        <part>04 00800000 00180000</part>
-        <part name="t04401w064.u19" crc="3a95f19c"/>
+        <part>04 00600000 00180000</part>
+        <part name="pgm_t0500.u18" crc="d881726c"/>
+        <part name="pgm_t0501.u19" crc="d2106864"/>
 
         <!-- CART MUSIC -->
-        <part>05 00400000 00400000</part>
-    	<part name="m04401b032.u17" crc="5a0dbd76"/>
+        <part>05 00200000 00400000</part>
+    	<part name="pgm_m0500.u1" crc="37928cdd"/>
 
         <!-- A ROM -->
-        <part>06 01000000 00000000</part>
-	    <part name="a04401w064.u7" crc="ed229794"/>
-	    <part name="a04402w064.u8" crc="752167b0"/>
+        <part>06 01C00000 00000000</part>
+	    <part name="pgm_a0500.u5" crc="80a59197"/>
+	    <part name="pgm_a0501.u6" crc="98c931b1"/>
+	    <part name="pgm_a0502.u7" crc="c3fcdf1d"/>
+	    <part name="pgm_a0503.u8" crc="066dffec"/>
+	    <part name="pgm_a0504.u11" crc="45337583"/>
+	    <part name="pgm_a0505.u12" crc="5b8cf3a5"/>
+	    <part name="pgm_a0506.u13" crc="087ac60c"/>
 
         <!-- B ROM -->
-        <part>07 00800000 00000000</part>
-	    <part name="b04401w064_corrupt.u1" crc="8cbff066"/>
-	</rom>
-	
-	<!-- IGS027A INTERNAL ARM ROM (16KB -> block RAM) -->
-        <part>09 00004000 00000000</part>
-        <part name="kovsh_v100_china.asic" crc="0f09a5c1"/>
+        <part>07 01000000 00000000</part>
+	    <part name="pgm_b0500.u9" crc="cde07f74"/>
+	    <part name="pgm_b0501.u10" crc="1546c2e9"/>
+	    <part name="pgm_b0502.u15" crc="e97b31c3"/>
+	    <part name="pgm_b0503.u16" crc="e41d98e4"/>
 	</rom>
 </misterromdescription>
