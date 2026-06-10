@@ -117,7 +117,10 @@ package system_consts;
         GAME_DWPC     = 8'd18,
         GAME_DMNFRNT  = 8'd19,   // IGS027A type3 (55857G), 22 MHz
         GAME_THEGLAD  = 8'd20,   // IGS027A type3 (55857G), 22 MHz
-        GAME_SVG      = 8'd21    // IGS027A type3 (55857G), 33 MHz
+        GAME_SVG      = 8'd21,   // IGS027A type3 (55857G), 33 MHz
+        GAME_KET      = 8'd22,   // IGS027A type1 (CAVE), 20 MHz, recreated int ROM
+        GAME_ESPGAL   = 8'd23,   // IGS027A type1 (CAVE), 20 MHz, recreated int ROM
+        GAME_DDP3     = 8'd24    // IGS027A type1 (CAVE), 20 MHz, recreated int ROM
     } game_t;
 
     typedef struct packed {

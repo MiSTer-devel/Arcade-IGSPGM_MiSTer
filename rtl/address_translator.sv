@@ -98,6 +98,16 @@ always_comb begin
             ROMn = ROMn | ~ARM_SHAREn | ~ARM_LATCHn;           // carve out of ROM window
         end
 
+        // IGS027A type1 (CAVE: ket/espgal/ddp3) with the recreated internal ROM.
+        if (game == GAME_KET || game == GAME_ESPGAL) begin
+            ARM_LATCHn = ~(cpu_word_addr[23:2] == 22'h100000); // 0x400000-0x400003
+            ROMn = ROMn | ~ARM_LATCHn;
+        end
+        if (game == GAME_DDP3) begin
+            ARM_LATCHn = ~(cpu_word_addr[23:2] == 22'h140000); // 0x500000-0x500003
+            ROMn = ROMn | ~ARM_LATCHn;
+        end
+
         // IGS027A type2 (kov2/kov2p/ddp2/martmast/dw2001/dwpc): shared RAM
         // 0xd00000-0xd0ffff (64KB), latch 0xd10000-0xd10001.  Above ROM space,
         // no carve-out.

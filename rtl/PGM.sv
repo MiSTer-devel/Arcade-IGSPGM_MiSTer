@@ -897,7 +897,10 @@ wire arm_type2 = (game == GAME_KOV2)  || (game == GAME_KOV2P)   || (game == GAME
 // IGS027A type3 (55857G): dmnfrnt/theglad.  68k share 0x500000 (double-buffered),
 // latch 0x5c0300, ARM FIQ pulse on 68k write to 0x5c0000.
 wire arm_type3 = (game == GAME_DMNFRNT) || (game == GAME_THEGLAD) || (game == GAME_SVG);
-wire arm_game = (game == GAME_KOVSH) || (game == GAME_PHOTOY2K) || arm_type2 || arm_type3;
+// IGS027A type1 CAVE (ket/espgal/ddp3): recreated internal ROM, latch-only, 20 MHz,
+// no external ARM ROM (arm_has_exrom stays 0 via the type2/3-only definition below).
+wire arm_type1_cave = (game == GAME_KET) || (game == GAME_ESPGAL) || (game == GAME_DDP3);
+wire arm_game = (game == GAME_KOVSH) || (game == GAME_PHOTOY2K) || arm_type1_cave || arm_type2 || arm_type3;
 wire i22_game = (game == GAME_KILLBLD) || (game == GAME_DRGW3);
 
 wire [31:0] a27_cache_addr, i22_cache_addr;
