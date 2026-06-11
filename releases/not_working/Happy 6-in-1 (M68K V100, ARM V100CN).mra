@@ -1,7 +1,7 @@
 <misterromdescription>
-	<!-- IGS027A ARM type3 (55857G), 22 MHz part.  External ARM ROM decrypt: pgm_theglad_decrypt.  68k program plaintext. -->
-	<name>The Gladiator (ver. 107)</name>
-	<setname>theglad</setname>
+	<!-- IGS027A ARM type3 (55857G), 24 MHz part.  External ARM ROM decrypt: pgm_happy6_decrypt.  68k program plaintext.  Gfx/audio ROMs are address-scrambled; the core descrambles them during load. -->
+	<name>Happy 6-in-1 (M68K V100, ARM V100CN)</name>
+	<setname>happy6100cn</setname>
 	<rbf>IGSPGM</rbf>
 	<rotation>horizontal</rotation>
 	<mameversion>277</mameversion>
@@ -16,9 +16,9 @@
 		<dip name="Unused 2" bits="6" ids="On,Off"/>
 		<dip name="Debug" bits="7" ids="On,Off"/>
 	</switches>
-	<rom index="0" address="0x30000000" zip="pgm.zip|theglad.zip">
-		<!-- SYSTEM INFO (game id = 20) -->
-		<part>14 00</part>
+	<rom index="0" address="0x30000000" zip="pgm.zip|happy6100cn.zip|happy6.zip">
+		<!-- SYSTEM INFO (game id = 26) -->
+		<part>1a 00</part>
 
 		<!-- BIOS PROG / TILE / MUSIC -->
 		<part>00 00020000 00000000</part>
@@ -30,26 +30,24 @@
 
 		<!-- CART PROG (68k, plaintext) -->
 		<part>03 00080000 00100000</part>
-		<part name="v101_u6.u6" crc="f799e866"/>
+		<part name="v100cn_u5.u5" crc="a25418e8"/>
 
-		<!-- CART TILE -->
+		<!-- CART TILE (scrambled; descrambled by the core at load) -->
 		<part>04 00800000 00180000</part>
-		<part name="igs_t04601w64m.u33" crc="e5dab371"/>
+		<part name="t01w64m_u29.u29" crc="2d3feb8b"/>
 
-		<!-- CART MUSIC (ICS @0x400000) -->
+		<!-- CART MUSIC (ICS @0x400000; scrambled) -->
 		<part>05 00800000 00400000</part>
-		<part name="igs_w04601b64m.u1" crc="5f15ddb3"/>
+		<part name="w01w64m_u17.u17" crc="7e23e2be"/>
 
-		<!-- A ROM (sprite colour) -->
-		<part>06 01800000 00000000</part>
-		<part name="igs_a04601w64m.u2" crc="d9b2e004"/>
-		<part name="igs_a04602w64m.u4" crc="14f22308"/>
-		<part name="igs_a04603w64m.u6" crc="8f621e17"/>
+		<!-- A ROM (sprite colour; scrambled) -->
+		<part>06 01000000 00000000</part>
+		<part name="a01w64m_u5.u5" crc="bbaa3df3"/>
+		<part name="a02w64m_u6.u6" crc="f8c9cd36"/>
 
-		<!-- B ROM (sprite mask) -->
-		<part>07 00c00000 00000000</part>
-		<part name="igs_b04601w64m.u11" crc="ee72bccf"/>
-		<part name="igs_b04602w32m.u12" crc="7dba9c38"/>
+		<!-- B ROM (sprite mask; scrambled) -->
+		<part>07 00800000 00000000</part>
+		<part name="b01w64m_u19.u19" crc="73f5f225"/>
 
 		<!-- IGS027A INTERNAL ARM ROM: synthesized 0x188 execute-only area
 		     (NO_DUMP on hardware; reconstructed as MAME does) followed by the
@@ -82,11 +80,11 @@
 			FE FF FF EA FE FF FF EA FE FF FF EA FE FF FF EA
 			FE FF FF EA 5C 10 9F E5
 		</part>
-		<part name="theglad_igs027a_v100_overseas.bin" crc="02fe6f52"/>
+		<part name="happy6_igs027a_v100_china.bin" crc="ed530445"/>
 
 		<!-- IGS027A EXTERNAL ARM ROM (encrypted; decrypted at load) -->
-		<part>0a 00200000 00000000</part>
-		<part name="v107_u26.u26" crc="f7c61357"/>
+		<part>0a 00400000 00000000</part>
+		<part name="v100cn_u26.u26" crc="9c29e482"/>
 	</rom>
 	<nvram index="8" size="131072"/>
 </misterromdescription>

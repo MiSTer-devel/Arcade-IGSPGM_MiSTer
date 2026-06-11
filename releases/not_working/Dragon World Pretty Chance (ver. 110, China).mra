@@ -21,45 +21,45 @@
 		<dip name="Debug" bits="7" ids="On,Off"/>
 	</switches>
 	<rom index="0" address="0x30000000" zip="pgm.zip|dwpc.zip">
-        <!-- SYSTEM INFO (game = GAME_DWPC = 18) -->
+		<!-- SYSTEM INFO (game = GAME_DWPC = 18) -->
 		<part>12 00</part>
 
-        <!-- BIOS PROG / TILE / MUSIC -->
+		<!-- BIOS PROG / TILE / MUSIC -->
 		<part>00 00020000 00000000</part>
 		<part name="pgm_p02s.u20"/>
-        <part>01 00200000 00000000</part>
+		<part>01 00200000 00000000</part>
 		<part name="pgm_t01s.rom"/>
-        <part>02 00200000 00000000</part>
+		<part>02 00200000 00000000</part>
 		<part name="pgm_m01s.rom"/>
 
-        <!-- CART PROG (ROM_LOAD16_WORD_SWAP, plaintext) -->
-        <part>03 00080000 00100000</part>
-        <part name="dwpc_v110cn_u22.u22" crc="64f22362"/>
+		<!-- CART PROG (ROM_LOAD16_WORD_SWAP, plaintext) -->
+		<part>03 00080000 00100000</part>
+		<part name="dwpc_v110cn_u22.u22" crc="64f22362"/>
 
-        <!-- CART TILE -->
-        <part>04 00400000 00180000</part>
-        <part name="dwpc_v110cn_u11.u11" crc="db219cb8"/>
+		<!-- CART TILE -->
+		<part>04 00400000 00180000</part>
+		<part name="dwpc_v110cn_u11.u11" crc="db219cb8"/>
 
-        <!-- CART MUSIC -->
-        <part>05 00200000 00200000</part>
-        <part name="dwpc_v101xx_u7.u7" crc="5cf9bada"/>
+		<!-- CART MUSIC -->
+		<part>05 00200000 00200000</part>
+		<part name="dwpc_v101xx_u7.u7" crc="5cf9bada"/>
 
-        <!-- A ROM (sprite colour) -->
-        <part>06 00400000 00000000</part>
-        <part name="dwpc_v101xx_u2.u2" crc="48b2f407"/>
-        <part name="dwpc_v101xx_u3.u3" crc="3bb45a97"/>
+		<!-- A ROM (sprite colour) -->
+		<part>06 00400000 00000000</part>
+		<part name="dwpc_v101xx_u2.u2" crc="48b2f407"/>
+		<part name="dwpc_v101xx_u3.u3" crc="3bb45a97"/>
 
-        <!-- B ROM (sprite mask) -->
-        <part>07 00200000 00000000</part>
-        <part name="dwpc_v101xx_u9.u9" crc="481b89b1"/>
+		<!-- B ROM (sprite mask) -->
+		<part>07 00200000 00000000</part>
+		<part name="dwpc_v101xx_u9.u9" crc="481b89b1"/>
 
-        <!-- IGS027A INTERNAL ARM ROM -->
-        <part>09 00004000 00000000</part>
-        <part name="dw2001_igs027a_japan.bin" crc="3a79159b"/>
+		<!-- IGS027A INTERNAL ARM ROM -->
+		<part>09 00004000 00000000</part>
+		<part name="dw2001_igs027a_japan.bin" crc="3a79159b"/>
 
-        <!-- IGS027A EXTERNAL ARM ROM (encrypted; RTL-decrypted) -->
-        <part>0a 00080000 00000000</part>
-        <part name="dwpc_v110cn_u12.u12" crc="5bb1ee6a"/>
+		<!-- IGS027A EXTERNAL ARM ROM (encrypted; RTL-decrypted) -->
+		<part>0a 00080000 00000000</part>
+		<part name="dwpc_v110cn_u12.u12" crc="5bb1ee6a"/>
 	</rom>
 	<nvram index="8" size="131072"/>
 </misterromdescription>
