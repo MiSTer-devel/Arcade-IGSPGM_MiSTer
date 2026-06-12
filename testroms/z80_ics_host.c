@@ -353,6 +353,62 @@ bool z80_ics_reset_irq_counts(z80_ics_irq_counts_t *out)
     return true;
 }
 
+bool z80_ics_get_irq_log(z80_ics_irq_log_entry_t *entries, u8 *count)
+{
+    u16 n;
+    if (!command_simple(Z80_ICS_CMD_GET_IRQ_LOG, 0, 0, 0, 0, NULL))
+        return false;
+    z80_bus_take();
+    n = shared_read16(Z80_ICS_OFF_LOG_COUNT);
+    if (n > Z80_ICS_IRQ_LOG_MAX)
+        n = Z80_ICS_IRQ_LOG_MAX;
+    for (u16 i = 0; i < n; i++)
+    {
+        /* 68k word high byte = lower Z80 address (see shared_read_voice). */
+        u16 w0 = shared_read16((u16)(Z80_ICS_OFF_LOG_DATA + i * 4));
+        u16 w1 = shared_read16((u16)(Z80_ICS_OFF_LOG_DATA + i * 4 + 2));
+        entries[i].seq = (u8)(w0 >> 8);
+        entries[i].kind = (u8)w0;
+        entries[i].a = (u8)(w1 >> 8);
+        entries[i].b = (u8)w1;
+    }
+    z80_bus_release();
+    if (count)
+        *count = (u8)n;
+    return true;
+}
+
+bool z80_ics_clear_irq_log(void)
+{
+    return command_simple(Z80_ICS_CMD_CLEAR_IRQ_LOG, 0, 0, 0, 0, NULL);
+}
+
+void z80_ics_peek(u16 offset, u8 *out, u16 len)
+{
+    z80_bus_take();
+    for (u16 i = 0; i < len; i += 2)
+    {
+        u16 value = z80_read_word((u16)(offset + i));
+        out[i] = (u8)(value >> 8);
+        if ((u16)(i + 1) < len)
+            out[i + 1] = (u8)value;
+    }
+    z80_bus_release();
+}
+
+bool z80_ics_read_status_port(u16 *result)
+{
+    if (!command_simple(Z80_ICS_CMD_READ_STATUS, 0, 0, 0, 0, NULL))
+        return false;
+    if (result)
+    {
+        z80_bus_take();
+        *result = shared_read16(Z80_ICS_OFF_RESULT);
+        z80_bus_release();
+    }
+    return true;
+}
+
 void set_osc_acc(z80_ics_voice_t *voice, u32 addr)
 {
     voice->osc_acc_hi = (addr >> 4) & 0xffff;

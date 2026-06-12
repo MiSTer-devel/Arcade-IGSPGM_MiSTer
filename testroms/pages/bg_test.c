@@ -70,6 +70,7 @@ static void init()
         for( u8 x = 0; x < 8; x++ )
         {
             sym_at(codes[code], x + 1, y + 3, 1);
+            sym_at(codes[code], x + 1, y + 61, 1);
             code++;
         }
     }
@@ -105,6 +106,7 @@ static void init()
     }
 
     tile = &VRAM->bg[1 + ( 3 * 64)];
+    IGS023_BG_Y_SET(0xffff);
 }
 
 static void update()

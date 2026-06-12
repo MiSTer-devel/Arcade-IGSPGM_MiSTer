@@ -30,6 +30,7 @@ SECTIONS
     {
         KEEP(*(.sprite_buffer .sprite_buffer.*));
         KEEP(*(.gui_buffer .gui_buffer.*));
+        KEEP(*(.comms_buffer .comms_buffer.*));
         _sbss = . ;
         *(.bss .bss.*)
         *(COMMON)

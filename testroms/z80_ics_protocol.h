@@ -18,7 +18,8 @@ typedef signed long s32;
 
 #define Z80_ICS_SHARED_OFFSET 0x7000
 #define Z80_ICS_MAGIC         0x1c5d
-#define Z80_ICS_DRIVER_MAGIC  0x1c51
+/* 0x1c51: original command set; 0x1c52: adds IRQ event log (0x32/0x33). */
+#define Z80_ICS_DRIVER_MAGIC  0x1c52
 
 #define Z80_ICS_STATUS_EMPTY  0x00
 #define Z80_ICS_STATUS_READY  0x10
@@ -39,6 +40,10 @@ typedef signed long s32;
 #define Z80_ICS_CMD_WRITE_VOICE      0x21
 #define Z80_ICS_CMD_GET_IRQ_COUNTS   0x30
 #define Z80_ICS_CMD_RESET_IRQ_COUNTS 0x31
+#define Z80_ICS_CMD_GET_IRQ_LOG      0x32
+#define Z80_ICS_CMD_CLEAR_IRQ_LOG    0x33
+/* result = raw ICS status port (0x8000) read */
+#define Z80_ICS_CMD_READ_STATUS      0x34
 
 #define Z80_ICS_WIDTH_16       0
 #define Z80_ICS_WIDTH_UPPER8   1
@@ -87,6 +92,22 @@ typedef struct Z80_ICS_PACKED
 } z80_ics_voice_t;
 
 #define Z80_ICS_VOICE_SIZE 24
-#define Z80_ICS_SHARED_SIZE (Z80_ICS_OFF_VOICE_DATA + Z80_ICS_VOICE_SIZE)
+
+/* IRQ event log: ring of the raw bytes the Z80 IRQ handler observed, in
+ * service order.  Entry = {seq, kind, a, b}:
+ *   kind 0 TIMER:    a = 0x43 read value, b = status-port value
+ *   kind 1 IRQV:     a = IRQV read value, b = status-port value
+ *   kind 2 SPURIOUS: a = status-port value, b = 0
+ */
+#define Z80_ICS_OFF_LOG_COUNT (Z80_ICS_OFF_VOICE_DATA + Z80_ICS_VOICE_SIZE)
+#define Z80_ICS_OFF_LOG_DATA  (Z80_ICS_OFF_LOG_COUNT + 2)
+#define Z80_ICS_IRQ_LOG_MAX        32
+#define Z80_ICS_IRQ_LOG_ENTRY_SIZE 4
+#define Z80_ICS_IRQ_LOG_KIND_TIMER    0
+#define Z80_ICS_IRQ_LOG_KIND_IRQV     1
+#define Z80_ICS_IRQ_LOG_KIND_SPURIOUS 2
+
+#define Z80_ICS_SHARED_SIZE \
+    (Z80_ICS_OFF_LOG_DATA + Z80_ICS_IRQ_LOG_MAX * Z80_ICS_IRQ_LOG_ENTRY_SIZE)
 
 #endif

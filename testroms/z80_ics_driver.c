@@ -25,6 +25,24 @@ static volatile u32 irq_osc_count;
 static volatile u32 irq_vol_count;
 static volatile u32 irq_spurious_count;
 
+/* IRQ event ring: raw bytes seen by service_irq_c, in service order. */
+static volatile u8 irq_log[Z80_ICS_IRQ_LOG_MAX * Z80_ICS_IRQ_LOG_ENTRY_SIZE];
+static volatile u8 irq_log_seq;    /* free-running event number */
+static volatile u8 irq_log_total;  /* saturates at Z80_ICS_IRQ_LOG_MAX */
+static volatile u8 irq_consecutive_spurious;
+
+static void irq_log_event(u8 kind, u8 a, u8 b)
+{
+    u8 idx = (u8)((irq_log_seq & (Z80_ICS_IRQ_LOG_MAX - 1)) << 2);
+    irq_log[idx] = irq_log_seq;
+    irq_log[idx + 1] = kind;
+    irq_log[idx + 2] = a;
+    irq_log[idx + 3] = b;
+    irq_log_seq++;
+    if (irq_log_total < Z80_ICS_IRQ_LOG_MAX)
+        irq_log_total++;
+}
+
 static u8 ics_in_status(void) __naked
 {
     __asm
@@ -405,6 +423,29 @@ static void reset_irq_counts(void)
     irq_spurious_count = 0;
 }
 
+static void publish_irq_log(void)
+{
+    u8 count = irq_log_total;
+    u8 start = (u8)((irq_log_seq - count) & (Z80_ICS_IRQ_LOG_MAX - 1));
+    u8 i;
+    put16(Z80_ICS_OFF_LOG_COUNT, count);
+    for (i = 0; i < count; i++)
+    {
+        u8 src = (u8)(((start + i) & (Z80_ICS_IRQ_LOG_MAX - 1)) << 2);
+        u16 dst = (u16)(Z80_ICS_OFF_LOG_DATA + ((u16)i << 2));
+        SHARED[dst] = irq_log[src];
+        SHARED[dst + 1] = irq_log[src + 1];
+        SHARED[dst + 2] = irq_log[src + 2];
+        SHARED[dst + 3] = irq_log[src + 3];
+    }
+}
+
+static void clear_irq_log(void)
+{
+    irq_log_seq = 0;
+    irq_log_total = 0;
+}
+
 static void service_irq_c(void)
 {
     u8 status = ics_in_status();
@@ -413,6 +454,8 @@ static void service_irq_c(void)
     if (status & ICS_STATUS_IRQ)
     {
         u8 timer_status = (u8)ics_read_reg(0, ICS_REG_TIMER_STAT, Z80_ICS_WIDTH_LOWER8);
+        if (timer_status & 0x03)
+            irq_log_event(Z80_ICS_IRQ_LOG_KIND_TIMER, timer_status, status);
         if (timer_status & 0x01)
         {
             irq_timer0_count++;
@@ -426,25 +469,86 @@ static void service_irq_c(void)
             handled = 1;
         }
 
-        while (ics_in_status() & ICS_STATUS_VOICEIRQ)
+        for (;;)
         {
+            u8 vstatus = ics_in_status();
             u8 irqv;
+            u8 voice;
+            if (!(vstatus & ICS_STATUS_VOICEIRQ))
+                break;
             /* BIOS reads 0x0f directly; it is an IRQ source register even
                though it lives in the low register-number range. */
             ics_select_reg(ICS_REG_IRQV);
             irqv = ics_in_hi();
+            irq_log_event(Z80_ICS_IRQ_LOG_KIND_IRQV, irqv, vstatus);
             if ((irqv & 0xe0) == 0xe0)
                 break;
+            voice = irqv & 0x1f;
+            /* On real hardware the INT level follows the stored per-voice
+               pending bits, not the IRQV read: ack by clearing OscConf bit7
+               / VCtl bit7 on the reported voice (the BIOS achieves this via
+               its voice-teardown rewrite).  Reading IRQV alone storms. */
             if ((irqv & 0x80) == 0)
+            {
+                u8 conf = (u8)ics_read_reg(voice, 0x00, Z80_ICS_WIDTH_UPPER8);
+                /* The INT level follows (source condition & enable): clearing
+                   bit7 alone re-asserts immediately (measured: 12k services).
+                   Clear the enable too, BIOS-teardown style. */
+                ics_write_reg(voice, 0x00, Z80_ICS_WIDTH_UPPER8, conf & 0x5f);
                 irq_osc_count++;
+            }
             if ((irqv & 0x40) == 0)
+            {
+                u8 vctl = (u8)ics_read_reg(voice, 0x0d, Z80_ICS_WIDTH_UPPER8);
+                ics_write_reg(voice, 0x0d, Z80_ICS_WIDTH_UPPER8, vctl & 0x5f);
                 irq_vol_count++;
+            }
             handled = 1;
         }
     }
 
     if (!handled)
+    {
+        /* Hardware can assert INT without the status VOICEIRQ bit: attempt
+           a voice ack via IRQV anyway before declaring the IRQ spurious. */
+        u8 irqv;
+        ics_select_reg(ICS_REG_IRQV);
+        irqv = ics_in_hi();
+        if ((irqv & 0xe0) != 0xe0)
+        {
+            u8 voice = irqv & 0x1f;
+            irq_log_event(Z80_ICS_IRQ_LOG_KIND_IRQV, irqv, status);
+            if ((irqv & 0x80) == 0)
+            {
+                u8 conf = (u8)ics_read_reg(voice, 0x00, Z80_ICS_WIDTH_UPPER8);
+                ics_write_reg(voice, 0x00, Z80_ICS_WIDTH_UPPER8, conf & 0x5f);
+                irq_osc_count++;
+            }
+            if ((irqv & 0x40) == 0)
+            {
+                u8 vctl = (u8)ics_read_reg(voice, 0x0d, Z80_ICS_WIDTH_UPPER8);
+                ics_write_reg(voice, 0x0d, Z80_ICS_WIDTH_UPPER8, vctl & 0x5f);
+                irq_vol_count++;
+            }
+            irq_consecutive_spurious = 0;
+            return;
+        }
         irq_spurious_count++;
+        irq_log_event(Z80_ICS_IRQ_LOG_KIND_SPURIOUS, status, irqv);
+        /* Storm guard: a level INT we cannot ack would starve the main loop
+           forever.  After 16 consecutive unresolvable IRQs, drop the 0x4A
+           gate and log it so the host sees what happened. */
+        if (++irq_consecutive_spurious >= 16)
+        {
+            ics_write_reg(0, 0x4a, Z80_ICS_WIDTH_LOWER8, 0x00);
+            irq_log_event(Z80_ICS_IRQ_LOG_KIND_SPURIOUS, 0xEE, status);
+            irq_consecutive_spurious = 0;
+        }
+    }
+    else
+    {
+        irq_consecutive_spurious = 0;
+    }
 }
 
 static void process_command(void)
@@ -510,6 +614,19 @@ static void process_command(void)
     case Z80_ICS_CMD_RESET_IRQ_COUNTS:
         reset_irq_counts();
         publish_irq_counts();
+        break;
+
+    case Z80_ICS_CMD_GET_IRQ_LOG:
+        publish_irq_log();
+        break;
+
+    case Z80_ICS_CMD_CLEAR_IRQ_LOG:
+        clear_irq_log();
+        publish_irq_log();
+        break;
+
+    case Z80_ICS_CMD_READ_STATUS:
+        put16(Z80_ICS_OFF_RESULT, ics_in_status());
         break;
 
     default:

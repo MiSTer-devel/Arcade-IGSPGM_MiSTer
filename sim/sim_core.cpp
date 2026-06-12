@@ -32,6 +32,24 @@ constexpr uint32_t DEBUG_LINK_IN_SEQ_V_OFF = 13;
 constexpr uint32_t DEBUG_LINK_OUT_SEQ_V_OFF = 17;
 constexpr uint32_t DEBUG_LINK_IN_BYTE_V_OFF = 1025;
 constexpr uint32_t DEBUG_LINK_OUT_AREA_OFF = 1536;
+
+// WORK_RAM FIFO comms block published by the TestROM (testroms/debug_link.c
+// RamComms).  The ROM mailbox above is kept for hardware-protocol parity, but
+// its data path is incoherent in the simulator (68k ROM reads go through
+// rom_cache while the simulator patches the SDRAM backing), so the simulator
+// prefers this block: WORK_RAM is uncached dual-port BRAM, fully coherent.
+constexpr uint32_t RAM_COMMS_BUF_SIZE = 512;
+constexpr uint32_t RAM_COMMS_MASK = RAM_COMMS_BUF_SIZE - 1;
+constexpr uint32_t RC_SIM_ACTIVE = 4;
+constexpr uint32_t RC_TARGET_READY = 5;
+constexpr uint32_t RC_IN_HEAD = 6;
+constexpr uint32_t RC_IN_TAIL = 8;
+constexpr uint32_t RC_OUT_HEAD = 10;
+constexpr uint32_t RC_OUT_TAIL = 12;
+constexpr uint32_t RC_IN_BUF = 14;
+constexpr uint32_t RC_OUT_BUF = RC_IN_BUF + RAM_COMMS_BUF_SIZE;
+constexpr uint32_t RC_BLOCK_SIZE = RC_OUT_BUF + RAM_COMMS_BUF_SIZE;
+constexpr uint32_t WORK_RAM_SIZE = 128 * 1024;
 }
 
 // SimCore implementation
@@ -85,6 +103,8 @@ void SimCore::Init()
     mDebugLinkTxOutstanding = false;
     mDebugLinkTx.clear();
     mDebugLinkRx.clear();
+    mDebugLinkRamAttached = false;
+    mDebugLinkRamBase = 0;
     Ics2115DebugUiReset();
     GetTestRomGuiWindow().Reset();
     gPrevVblank = false;
@@ -176,7 +196,9 @@ void SimCore::DebugLinkWriteByte(uint32_t offset, uint8_t value)
 {
     if (!mDebugLinkEnabled)
         return;
-    Memory(MemoryRegion::BIOS_PROG_ROM).Write((mDebugLinkBaseByte + offset) & DEBUG_LINK_ROM_MASK, 1, &value);
+    // Program-ROM bytes are stored word-swapped in SDRAM (little-endian word
+    // reads yield the 68k word), so single-byte patches flip address bit 0.
+    Memory(MemoryRegion::BIOS_PROG_ROM).Write(((mDebugLinkBaseByte + offset) ^ 1) & DEBUG_LINK_ROM_MASK, 1, &value);
 }
 
 void SimCore::DebugLinkStart(uint32_t commsWordAddr)
@@ -194,9 +216,12 @@ void SimCore::DebugLinkStart(uint32_t commsWordAddr)
     mDebugLinkTxOutstanding = false;
     mDebugLinkTx.clear();
     mDebugLinkRx.clear();
+    mDebugLinkRamAttached = false;
+    mDebugLinkRamBase = 0;
 
     const uint8_t magic[4] = {'I', 'P', 'O', 'C'};
-    Memory(MemoryRegion::BIOS_PROG_ROM).Write(mDebugLinkBaseByte, sizeof(magic), magic);
+    for (uint32_t i = 0; i < sizeof(magic); i++)
+        DebugLinkWriteByte(i, magic[i]);
     DebugLinkWriteByte(DEBUG_LINK_ACTIVE_V_OFF, 1);
     DebugLinkWriteByte(DEBUG_LINK_PENDING_V_OFF, 0);
     DebugLinkWriteByte(DEBUG_LINK_IN_SEQ_V_OFF, mDebugLinkInSeq);
@@ -215,6 +240,13 @@ void SimCore::DebugLinkStop()
     mDebugLinkTxOutstanding = false;
     mDebugLinkTx.clear();
     mDebugLinkRx.clear();
+    if (mDebugLinkRamAttached)
+    {
+        const uint8_t zero = 0;
+        Memory(MemoryRegion::WORK_RAM).Write(mDebugLinkRamBase + RC_SIM_ACTIVE, 1, &zero);
+    }
+    mDebugLinkRamAttached = false;
+    mDebugLinkRamBase = 0;
 }
 
 bool SimCore::DebugLinkEnabled() const
@@ -267,17 +299,101 @@ void SimCore::DebugLinkTick()
     mDebugLinkPrevOutRead = outRead;
 }
 
+uint16_t SimCore::DebugLinkRamReadU16(uint32_t offset)
+{
+    uint8_t b[2];
+    Memory(MemoryRegion::WORK_RAM).Read(mDebugLinkRamBase + offset, 2, b);
+    return static_cast<uint16_t>((b[0] << 8) | b[1]); // 68k big-endian
+}
+
+void SimCore::DebugLinkRamWriteU16(uint32_t offset, uint16_t value)
+{
+    const uint8_t b[2] = {static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value)};
+    Memory(MemoryRegion::WORK_RAM).Write(mDebugLinkRamBase + offset, 2, b);
+}
+
+bool SimCore::DebugLinkRamAttach()
+{
+    if (mDebugLinkRamAttached)
+        return true;
+
+    std::vector<uint8_t> ram(WORK_RAM_SIZE);
+    Memory(MemoryRegion::WORK_RAM).Read(0, ram.size(), ram.data());
+    for (uint32_t off = 0; off + RC_BLOCK_SIZE <= ram.size(); off += 2)
+    {
+        if (ram[off] == 'R' && ram[off + 1] == 'F' && ram[off + 2] == 'I' && ram[off + 3] == 'F' &&
+            ram[off + RC_TARGET_READY] == 1)
+        {
+            mDebugLinkRamBase = off;
+            mDebugLinkRamAttached = true;
+            const uint8_t one = 1;
+            Memory(MemoryRegion::WORK_RAM).Write(mDebugLinkRamBase + RC_SIM_ACTIVE, 1, &one);
+            return true;
+        }
+    }
+    return false;
+}
+
 bool SimCore::DebugLinkWrite(const std::vector<uint8_t> &data, uint64_t timeoutCyclesPerByte)
 {
     if (!mDebugLinkEnabled)
         DebugLinkStart();
 
+    const uint64_t timeoutCycles = timeoutCyclesPerByte * std::max<size_t>(data.size(), 1);
+    uint64_t elapsed = 0;
+
+    // Preferred transport: WORK_RAM FIFO.  Wait for the TestROM to publish
+    // the comms block (it appears once debug_link code first runs), then
+    // stream the whole request into the ring.
+    while (!DebugLinkRamAttach())
+    {
+        if (timeoutCycles && elapsed >= timeoutCycles)
+            break;
+        TickResult tickResult = Tick(50000);
+        elapsed += tickResult.mTicksExecuted;
+        if (!tickResult.Succeeded())
+            return false;
+    }
+
+    if (mDebugLinkRamAttached)
+    {
+        size_t sent = 0;
+        while (sent < data.size())
+        {
+            uint16_t head = DebugLinkRamReadU16(RC_IN_HEAD);
+            const uint16_t tail = DebugLinkRamReadU16(RC_IN_TAIL);
+            uint32_t space = RAM_COMMS_BUF_SIZE - static_cast<uint16_t>(head - tail);
+            bool wrote = false;
+            while (space != 0 && sent < data.size())
+            {
+                Memory(MemoryRegion::WORK_RAM).Write(mDebugLinkRamBase + RC_IN_BUF + (head & RAM_COMMS_MASK), 1, &data[sent]);
+                head++;
+                sent++;
+                space--;
+                wrote = true;
+            }
+            if (wrote)
+                DebugLinkRamWriteU16(RC_IN_HEAD, head);
+            if (sent < data.size())
+            {
+                if (timeoutCycles && elapsed >= timeoutCycles)
+                    return false;
+                TickResult tickResult = Tick(2048);
+                elapsed += tickResult.mTicksExecuted;
+                if (!tickResult.Succeeded())
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    // Fallback: hardware ROM-mailbox protocol (PicoROM emulation).  Note the
+    // 68k reads ROM through rom_cache, so this path can serve stale comms
+    // data in the simulator; it is kept for protocol parity only.
     for (uint8_t value : data)
         mDebugLinkTx.push_back(value);
     DebugLinkPrimeTx();
 
-    const uint64_t timeoutCycles = timeoutCyclesPerByte * std::max<size_t>(data.size(), 1);
-    uint64_t elapsed = 0;
     while (!mDebugLinkTx.empty() || mDebugLinkTxOutstanding)
     {
         if (timeoutCycles && elapsed >= timeoutCycles)
@@ -298,14 +414,44 @@ std::vector<uint8_t> SimCore::DebugLinkRead(uint32_t maxBytes, uint32_t minBytes
         minBytes = maxBytes;
 
     uint64_t elapsed = 0;
-    while (mDebugLinkRx.size() < minBytes)
+    if (mDebugLinkRamAttached)
     {
-        if (timeoutCycles && elapsed >= timeoutCycles)
-            break;
-        TickResult tickResult = Tick(64);
-        elapsed += tickResult.mTicksExecuted;
-        if (!tickResult.Succeeded())
-            break;
+        while (true)
+        {
+            const uint16_t head = DebugLinkRamReadU16(RC_OUT_HEAD);
+            uint16_t tail = DebugLinkRamReadU16(RC_OUT_TAIL);
+            bool drained = false;
+            while (tail != head)
+            {
+                uint8_t b;
+                Memory(MemoryRegion::WORK_RAM).Read(mDebugLinkRamBase + RC_OUT_BUF + (tail & RAM_COMMS_MASK), 1, &b);
+                mDebugLinkRx.push_back(b);
+                tail++;
+                drained = true;
+            }
+            if (drained)
+                DebugLinkRamWriteU16(RC_OUT_TAIL, tail);
+            if (mDebugLinkRx.size() >= minBytes)
+                break;
+            if (timeoutCycles && elapsed >= timeoutCycles)
+                break;
+            TickResult tickResult = Tick(2048);
+            elapsed += tickResult.mTicksExecuted;
+            if (!tickResult.Succeeded())
+                break;
+        }
+    }
+    else
+    {
+        while (mDebugLinkRx.size() < minBytes)
+        {
+            if (timeoutCycles && elapsed >= timeoutCycles)
+                break;
+            TickResult tickResult = Tick(64);
+            elapsed += tickResult.mTicksExecuted;
+            if (!tickResult.Succeeded())
+                break;
+        }
     }
 
     const uint32_t count = std::min<uint32_t>(maxBytes, static_cast<uint32_t>(mDebugLinkRx.size()));

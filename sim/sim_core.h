@@ -155,11 +155,16 @@ class SimCore
     bool mDebugLinkTxOutstanding = false;
     std::deque<uint8_t> mDebugLinkTx;
     std::deque<uint8_t> mDebugLinkRx;
+    bool mDebugLinkRamAttached = false;
+    uint32_t mDebugLinkRamBase = 0;
 
     TickResult TickOneCycle();
     void DebugLinkTick();
     void DebugLinkPrimeTx();
     void DebugLinkWriteByte(uint32_t offset, uint8_t value);
+    bool DebugLinkRamAttach();
+    uint16_t DebugLinkRamReadU16(uint32_t offset);
+    void DebugLinkRamWriteU16(uint32_t offset, uint16_t value);
 
     // IOCTL helper methods
     void WaitForIOCTLReady();

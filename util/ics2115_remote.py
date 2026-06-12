@@ -45,6 +45,15 @@ CMD_READ_VOICE = 0x20
 CMD_WRITE_VOICE = 0x21
 CMD_GET_IRQ_COUNTS = 0x30
 CMD_RESET_IRQ_COUNTS = 0x31
+CMD_GET_IRQ_COUNTS_TIMED = 0x32
+CMD_GET_IRQ_LOG = 0x33
+CMD_READ_STATUS = 0x34
+CMD_PEEK_Z80 = 0x35
+
+IRQ_LOG_KIND_TIMER = 0
+IRQ_LOG_KIND_IRQV = 1
+IRQ_LOG_KIND_SPURIOUS = 2
+IRQ_LOG_KIND_NAMES = {0: "timer", 1: "irqv", 2: "spurious"}
 
 WIDTH_16 = 0
 WIDTH_UPPER8 = 1
@@ -314,6 +323,21 @@ class IRQCounts:
     osc: int
     vol: int
     spurious: int
+
+
+@dataclasses.dataclass
+class IRQLogEntry:
+    """One raw observation from the Z80 IRQ handler (see z80_ics_protocol.h).
+
+    kind "timer":    a = 0x43 read value, b = status-port value
+    kind "irqv":     a = IRQV read value, b = status-port value
+    kind "spurious": a = status-port value, b = 0
+    """
+
+    seq: int
+    kind: str
+    a: int
+    b: int
 
 
 class SimServerError(ICSRemoteError):
@@ -841,6 +865,42 @@ class ICS2115Remote:
         if len(payload) != 20:
             raise ICSRemoteProtocolError(f"bad irq payload length {len(payload)}")
         return IRQCounts(*struct.unpack(">IIIII", payload))
+
+    def get_irq_counts_timed(self, *, reset: bool = False) -> tuple[int, IRQCounts]:
+        """Atomically sample the TestROM vblank frame counter and IRQ counts."""
+        payload = self._request(CMD_GET_IRQ_COUNTS_TIMED, bytes([1 if reset else 0]))
+        if len(payload) != 24:
+            raise ICSRemoteProtocolError(f"bad timed irq payload length {len(payload)}")
+        frame = struct.unpack(">I", payload[:4])[0]
+        return frame, IRQCounts(*struct.unpack(">IIIII", payload[4:]))
+
+    def get_irq_log(self, *, clear: bool = False) -> list[IRQLogEntry]:
+        """Read the Z80 IRQ event ring (raw IRQV/0x43/status bytes, in order)."""
+        payload = self._request(CMD_GET_IRQ_LOG, bytes([1 if clear else 0]))
+        if not payload or len(payload) != 1 + payload[0] * 4:
+            raise ICSRemoteProtocolError(f"bad irq log payload length {len(payload)}")
+        entries = []
+        for i in range(payload[0]):
+            seq, kind, a, b = payload[1 + i * 4: 5 + i * 4]
+            entries.append(IRQLogEntry(seq, IRQ_LOG_KIND_NAMES.get(kind, str(kind)), a, b))
+        return entries
+
+    def clear_irq_log(self) -> None:
+        self.get_irq_log(clear=True)
+
+    def peek_z80(self, addr: int, length: int) -> bytes:
+        """Raw Z80-RAM read via the 68k bus; works with a wedged Z80."""
+        if not 0 < length <= 64:
+            raise ValueError("length must be 1..64")
+        payload = self._request(CMD_PEEK_Z80, bytes([(addr >> 8) & 0xFF, addr & 0xFF, length]))
+        return payload
+
+    def read_status_port(self) -> int:
+        """Raw ICS status port (Z80 port 0x8000) read by the Z80."""
+        payload = self._request(CMD_READ_STATUS)
+        if len(payload) != 2:
+            raise ICSRemoteProtocolError(f"bad status payload length {len(payload)}")
+        return struct.unpack(">H", payload)[0]
 
     def open_audio(self, port: Optional[str] = None, *, latest_capacity: int = 65536):
         open_sim_audio = getattr(self.picorom, "open_audio", None)

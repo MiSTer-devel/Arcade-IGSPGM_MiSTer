@@ -24,5 +24,14 @@
 #define ICS_REMOTE_CMD_WRITE_VOICE      0x21
 #define ICS_REMOTE_CMD_GET_IRQ_COUNTS   0x30
 #define ICS_REMOTE_CMD_RESET_IRQ_COUNTS 0x31
+/* payload[0] = reset flag; response = frame_count u32 + 5 x u32 counts */
+#define ICS_REMOTE_CMD_GET_IRQ_COUNTS_TIMED 0x32
+/* payload[0] = clear flag; response = count u8 + count x {seq,kind,a,b} */
+#define ICS_REMOTE_CMD_GET_IRQ_LOG      0x33
+/* response = u16 raw ICS status port (0x8000) value */
+#define ICS_REMOTE_CMD_READ_STATUS      0x34
+/* payload = {addr_hi, addr_lo, len<=64}; 68k reads Z80 RAM over the bus —
+ * works even when the Z80 is wedged (post-mortem access to the IRQ log). */
+#define ICS_REMOTE_CMD_PEEK_Z80         0x35
 
 #endif
