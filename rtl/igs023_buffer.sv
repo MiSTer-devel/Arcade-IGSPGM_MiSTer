@@ -68,7 +68,7 @@ assign wq_in.line = line;
 assign wq_in.wr = {wr1, wr0};
 assign wq_cur = wq_fifo0;
 
-wire valid_wr = (wr0 | wr1) && (column < 448);
+wire valid_wr = (wr0 | wr1) && (column < 448 || &column);
 
 localparam QUEUE_DEPTH = 12;
 
