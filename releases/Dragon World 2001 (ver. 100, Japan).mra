@@ -1,13 +1,9 @@
 <misterromdescription>
-	<!-- IGS027A ARM type2, 22 MHz part.  External ARM ROM decrypt scheme: pgm_mm_decrypt.
-	     NOTE: requires core support for GAME_DW2001 (game id 17): system_consts game_t
-	     enum, sim loader, arm_has_exrom, the mm exrom_addr_xor case in igs027a, AND the
-	     22 MHz ARM clock (11/25) in PGM.sv.  Only the Japan internal ASIC is dumped. -->
 	<name>Dragon World 2001 (ver. 100, Japan)</name>
 	<setname>dw2001</setname>
 	<rbf>IGSPGM</rbf>
 	<rotation>horizontal</rotation>
-	<mameversion>277</mameversion>
+	<mameversion>288</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
 	<switches default="ffff">
 		<dip name="Service Mode" bits="0" ids="On,Off"/>

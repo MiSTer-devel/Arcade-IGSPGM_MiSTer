@@ -1,18 +1,9 @@
 <misterromdescription>
-	<!-- IGS027A ARM type3 (55857G), 22 MHz part.  External ARM ROM decrypt: pgm_dfront_decrypt.
-	     Requires core support for GAME_DMNFRNT (game id 19): system_consts game_t enum, sim
-	     loader, arm_type3 wiring, the dfront case in exrom_decrypt, the type3 68k/ARM memory
-	     map + double-buffered shared RAM in igs027a/address_translator, and the 22 MHz ARM
-	     clock (11/25) in PGM.sv.
-	     The IGS027A internal ROM is undumped (NO_DUMP in MAME); like MAME's
-	     pgm_create_dummy_internal_arm_region it is replaced by a synthesized 16KB stub
-	     (specified inline below via raw <part> bytes + repeat) that sets SP and jumps to
-	     the external ARM ROM at 0x08000000, which holds the whole game. -->
 	<name>Demon Front (ver. 105)</name>
 	<setname>dmnfrnt</setname>
 	<rbf>IGSPGM</rbf>
 	<rotation>horizontal</rotation>
-	<mameversion>277</mameversion>
+	<mameversion>288</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
 	<switches default="ffff">
 		<dip name="Service Mode" bits="0" ids="On,Off"/>

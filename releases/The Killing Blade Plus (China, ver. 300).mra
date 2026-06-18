@@ -1,10 +1,9 @@
 <misterromdescription>
-	<!-- IGS027A ARM type3 (55857G), 33.8688 MHz part.  External ARM ROM (2MB) decrypt: pgm_killbldp_decrypt.  68k program plaintext.  Internal ARM ROM is a complete dump (execute-only area sourced from a bootleg). -->
 	<name>The Killing Blade Plus (China, ver. 300)</name>
 	<setname>killbldp</setname>
 	<rbf>IGSPGM</rbf>
 	<rotation>horizontal</rotation>
-	<mameversion>277</mameversion>
+	<mameversion>288</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
 	<switches default="ffff">
 		<dip name="Service Mode" bits="0" ids="On,Off"/>

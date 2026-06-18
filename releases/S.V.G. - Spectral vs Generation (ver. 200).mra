@@ -1,10 +1,9 @@
 <misterromdescription>
-	<!-- IGS027A ARM type3 (55857G), 33 MHz part.  External ARM ROM (2x4MB) decrypt: pgm_svg_decrypt (no high-byte table).  68k program plaintext. -->
 	<name>S.V.G. - Spectral vs Generation (ver. 200)</name>
 	<setname>svg</setname>
 	<rbf>IGSPGM</rbf>
 	<rotation>horizontal</rotation>
-	<mameversion>277</mameversion>
+	<mameversion>288</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
 	<switches default="ffff">
 		<dip name="Service Mode" bits="0" ids="On,Off"/>

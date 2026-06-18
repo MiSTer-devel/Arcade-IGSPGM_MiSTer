@@ -1,10 +1,9 @@
 <misterromdescription>
-	<!-- Same board behavior as Dragon World 3 (IGS025 + IGS022, MAME pgm_022_025_dw3 / init_drgw3), so it runs with the drgw3 game id. -->
 	<name>Dragon World 3 EX (ver. 100)</name>
 	<setname>dwex</setname>
 	<rbf>IGSPGM</rbf>
 	<rotation>horizontal</rotation>
-	<mameversion>277</mameversion>
+	<mameversion>288</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
 	<switches default="ffff">
 		<dip name="Service Mode" bits="0" ids="On,Off"/>
