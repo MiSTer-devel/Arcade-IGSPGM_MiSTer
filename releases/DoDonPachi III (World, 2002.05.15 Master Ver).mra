@@ -2,7 +2,7 @@
 	<name>DoDonPachi III (World, 2002.05.15 Master Ver)</name>
 	<setname>ddp3</setname>
 	<rbf>IGSPGM</rbf>
-	<rotation>vertical</rotation>
+	<rotation>vertical (ccw)</rotation>
 	<mameversion>288</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
 	<switches default="ffff">
@@ -25,11 +25,11 @@
 
 		<!-- BIOS TILE -->
 		<part>01 00200000 00000000</part>
-		<part name="pgm_t01s.rom"/>
+		<part name="pgm_t01s.rom" crc="1a7123a0"/>
 
 		<!-- BIOS MUSIC -->
 		<part>02 00200000 00000000</part>
-		<part name="pgm_m01s.rom"/>
+		<part name="pgm_m01s.rom" crc="45ae7159"/>
 
 		<!-- CART PROG (68k, encrypted; decrypted in RTL) -->
 		<part>03 00200000 00100000</part>

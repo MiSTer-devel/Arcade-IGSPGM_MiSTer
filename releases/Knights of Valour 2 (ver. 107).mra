@@ -43,15 +43,15 @@
 
 		<!-- BIOS PROG -->
 		<part>00 00020000 00000000</part>
-		<part name="pgm_p02s.u20"/>
+		<part name="pgm_p02s.u20" crc="78c15fa2"/>
 
 		<!-- BIOS TILE -->
 		<part>01 00200000 00000000</part>
-		<part name="pgm_t01s.rom"/>
+		<part name="pgm_t01s.rom" crc="1a7123a0"/>
 
 		<!-- BIOS MUSIC -->
 		<part>02 00200000 00000000</part>
-		<part name="pgm_m01s.rom"/>
+		<part name="pgm_m01s.rom" crc="45ae7159"/>
 
 		<!-- CART PROG (ROM_LOAD16_WORD_SWAP, plaintext) -->
 		<part>03 00400000 00100000</part>

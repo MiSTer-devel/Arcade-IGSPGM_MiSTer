@@ -18,11 +18,11 @@
 	<rom index="0" download="0x30000000" zip="pgm.zip">
 		<part>00 00</part>
 		<part>00 00020000 00000000</part>
-		<part name="pgm_p02s.u20"/>
+		<part name="pgm_p02s.u20" crc="78c15fa2"/>
 		<part>01 00200000 00000000</part>
-		<part name="pgm_t01s.rom"/>
+		<part name="pgm_t01s.rom" crc="1a7123a0"/>
 		<part>02 00200000 00000000</part>
-		<part name="pgm_m01s.rom"/>
+		<part name="pgm_m01s.rom" crc="45ae7159"/>
 	</rom>
 	<nvram index="8" size="131072"/>
 </misterromdescription>
