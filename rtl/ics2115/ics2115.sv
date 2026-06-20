@@ -1283,6 +1283,17 @@ module ics2115
                 // only gate on osc_ctl DONE here, not on osc_conf.
                 if (!host_voice_wr_data.osc_ctl[OSC_DONE])
                     osc_ended[host_voice_wr_voice] <= 1'b0;
+                // A host write to osc_acc (0x0A/0x0B) REPOSITIONS the voice off
+                // its previous end -> clear the sticky "ended" state.  The engine
+                // never writes osc_acc for a done voice (it skips done voices), so
+                // this only fires on a host reposition, never during playback; a
+                // genuinely-done voice left untouched (matrix mode 12) keeps
+                // storming.  Fixes the phantom osc IRQ when a game re-points a
+                // reused voice (new osc_acc) and enables the IRQ BEFORE the
+                // key-on: the stale osc_ended would otherwise re-assert in that
+                // window before the key-on clears it.
+                if (host_voice_wr_reg == 8'h0A || host_voice_wr_reg == 8'h0B)
+                    osc_ended[host_voice_wr_voice] <= 1'b0;
                 // Host osc pend requires bit7 (PEND) AND bit5 (IRQ enable) together
                 // -- hardware RE (matrix 00-C): 0xA0 latches a pend, 0x80 alone is a
                 // no-op.  Gating on bit7 alone let a stale bit7 in an osc_conf write
@@ -1293,6 +1304,10 @@ module ics2115
                 // A host vol_ctrl write that clears VOL_DONE restarts the envelope
                 // -> clear vol_ended (the vol analogue of the osc key-on clear).
                 if (!host_voice_wr_data.vol_ctrl[VOL_DONE])
+                    vol_ended[host_voice_wr_voice] <= 1'b0;
+                // vol analogue: a host write to vol_acc (0x09) reloads the
+                // envelope position -> clear vol_ended (same reposition logic).
+                if (host_voice_wr_reg == 8'h09)
                     vol_ended[host_voice_wr_voice] <= 1'b0;
                 // vol pends are NOT host-settable (hardware: VCtl bit7 writes
                 // latch nothing; only real envelope events pend)
