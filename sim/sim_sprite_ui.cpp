@@ -196,6 +196,14 @@ class SpriteDebugWindow : public Window
             root->sim_top__DOT__pgm_inst__DOT__igs023__DOT__sprite__DOT__draw_line, root->sim_top__DOT__pgm_inst__DOT__igs023__DOT__hcnt,
             root->sim_top__DOT__pgm_inst__DOT__igs023__DOT__vcnt, (root->sim_top__DOT__pgm_inst__DOT__igs023__DOT__ctrl[14] & 1) ? 1 : 0);
 
+        // DDR colour-cache effectiveness for the last completed sprite draw
+        // (counted in A-ROM word lookups inside igs023_buffer).
+        const uint32_t cacheHits = root->sim_top__DOT__pgm_inst__DOT__igs023__DOT__sprite__DOT__line_buffer__DOT__ddr_cache_hits_frame;
+        const uint32_t cacheMisses = root->sim_top__DOT__pgm_inst__DOT__igs023__DOT__sprite__DOT__line_buffer__DOT__ddr_cache_misses_frame;
+        const uint32_t cacheTotal = cacheHits + cacheMisses;
+        const double hitPct = cacheTotal ? (100.0 * cacheHits / static_cast<double>(cacheTotal)) : 0.0;
+        ImGui::Text("DDR cache (last frame): hits=%u  misses=%u  hit=%.1f%%", cacheHits, cacheMisses, hitPct);
+
         ImGui::Checkbox("Show all 256 rows", &mShowAllRows);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(kMinInputWidth);

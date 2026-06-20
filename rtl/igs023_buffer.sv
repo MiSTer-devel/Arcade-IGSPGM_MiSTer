@@ -133,33 +133,28 @@ always_ff @(posedge clk) begin
 end
 
 
-typedef enum bit[1:0]
+typedef enum bit[0:0]
 {
-    IDLE,
-    WAIT1,
-    WAIT2
+    RUN,    // pipeline: present next entry / compare cmp_entry's registered BRAM read
+    FETCH   // a miss is being serviced over SDRAM; fill the cache, then re-look-up
 } queue_state_t;
 
-queue_state_t queue_state = IDLE;
+queue_state_t queue_state = RUN;
 
 wire queue_valid = |write_queue_fifo_count;
 
-reg        ddr_cache_valid = 0;
-reg [19:0] ddr_cache_addr[256 * 4];
-reg [63:0] ddr_cache_data[256 * 4];
+write_entry_t cmp_entry;
+reg           cmp_valid = 0;
 
-function automatic [1:0] ddr_cache_slot(input arom_offset_t ofs);
-begin
-    ddr_cache_slot = ofs.words[3:2];
-end
-endfunction
+reg [7:0]  fill_sprite;
+reg [1:0]  fill_slot;
+reg [19:0] fill_tag;
 
-function automatic ddr_cache_hit(input [7:0] sprite_index, input arom_offset_t ofs);
-begin
-    ddr_cache_hit = ddr_cache_valid && (ddr_cache_addr[{sprite_index, ddr_cache_slot(ofs)}] == ofs.words[23:4]);
-end
-endfunction
-
+reg [31:0] ddr_cache_hits_frame   /* verilator public_flat */ = 0;
+reg [31:0] ddr_cache_misses_frame /* verilator public_flat */ = 0;
+reg [31:0] ddr_cache_hits_acc   = 0;
+reg [31:0] ddr_cache_misses_acc = 0;
+reg        ddr_cache_counted = 0;
 
 // Relative byte address of the 64-bit A-ROM word holding this pixel.  PGM.sv
 // adds CART_A_ROM_SDR_BASE before driving the SDRAM channel.
@@ -170,27 +165,81 @@ end
 endfunction
 
 
-function automatic [4:0] color_value(input [7:0] sprite_index, input arom_offset_t ofs);
+function automatic [4:0] color_extract(input [63:0] color_source, input arom_offset_t ofs);
 begin
-    bit [63:0] color_source = ddr_cache_data[{sprite_index, ddr_cache_slot(ofs)}];
-    color_value = 5'h1f;
+    color_extract = 5'h1f;
     case({ofs.words[1:0], ofs.sub[1:0]})
-        4'b0000: color_value = color_source[4:0];
-        4'b0001: color_value = color_source[9:5];
-        4'b0010: color_value = color_source[14:10];
-        4'b0100: color_value = color_source[20:16];
-        4'b0101: color_value = color_source[25:21];
-        4'b0110: color_value = color_source[30:26];
-        4'b1000: color_value = color_source[36:32];
-        4'b1001: color_value = color_source[41:37];
-        4'b1010: color_value = color_source[46:42];
-        4'b1100: color_value = color_source[52:48];
-        4'b1101: color_value = color_source[57:53];
-        4'b1110: color_value = color_source[62:58];
-        default: color_value = 5'h1f;
+        4'b0000: color_extract = color_source[4:0];
+        4'b0001: color_extract = color_source[9:5];
+        4'b0010: color_extract = color_source[14:10];
+        4'b0100: color_extract = color_source[20:16];
+        4'b0101: color_extract = color_source[25:21];
+        4'b0110: color_extract = color_source[30:26];
+        4'b1000: color_extract = color_source[36:32];
+        4'b1001: color_extract = color_source[41:37];
+        4'b1010: color_extract = color_source[46:42];
+        4'b1100: color_extract = color_source[52:48];
+        4'b1101: color_extract = color_source[57:53];
+        4'b1110: color_extract = color_source[62:58];
+        default: color_extract = 5'h1f;
     endcase
 end
 endfunction
+
+
+wire [19:0] tag_q_a,  tag_q_b;     // offset0 / offset1 tags
+wire [63:0] data_q_a, data_q_b;    // offset0 / offset1 64-bit colour words
+
+wire hit0 = (tag_q_a == cmp_entry.arom_offset0.words[23:4]);
+wire hit1 = (tag_q_b == cmp_entry.arom_offset1.words[23:4]);
+wire cmp_writable = (cmp_entry.line >= free_line_begin) && (cmp_entry.line < free_line_end);
+wire cmp_active   = cmp_valid && (queue_state == RUN) && cmp_writable;
+wire consume_now  = cmp_active &&  (hit0 && hit1);
+wire miss_now     = cmp_active && ~(hit0 && hit1);
+
+wire pop_entry_c  = consume_now;
+wire push_entry_c = write_queue_fetch_pending;
+logic [1:0]   fifo_count_next_c;
+write_entry_t fifo0_next_c;
+write_entry_t fifo1_next_c;
+always_comb begin
+    fifo_count_next_c = write_queue_fifo_count;
+    fifo0_next_c      = wq_fifo0;
+    fifo1_next_c      = wq_fifo1;
+    if (pop_entry_c) begin
+        if (write_queue_fifo_count == 2'd2) fifo0_next_c = wq_fifo1;
+        if (write_queue_fifo_count != 2'd0) fifo_count_next_c = write_queue_fifo_count - 1'b1;
+    end
+    if (push_entry_c) begin
+        case(fifo_count_next_c)
+            2'd0: fifo0_next_c = wq_fetch_data;
+            2'd1: fifo1_next_c = wq_fetch_data;
+            default: ;
+        endcase
+        if (fifo_count_next_c != 2'd2) fifo_count_next_c = fifo_count_next_c + 1'b1;
+    end
+end
+
+write_entry_t present_entry;
+assign present_entry = fifo0_next_c;
+wire present_valid = (queue_state == RUN) && ~miss_now && (fifo_count_next_c != 2'd0);
+
+wire cache_fill_we = (queue_state == FETCH) && (arom_req == arom_ack);
+
+wire [9:0] cache_addr_a = cache_fill_we ? {fill_sprite, fill_slot}
+                                        : {present_entry.sprite_index, present_entry.arom_offset0.words[3:2]};
+wire [9:0] cache_addr_b = {present_entry.sprite_index, present_entry.arom_offset1.words[3:2]};
+
+dualport_ram_unreg #(.WIDTH(20), .WIDTHAD(10)) ddr_cache_tag (
+    .clock_a(clk), .wren_a(cache_fill_we), .address_a(cache_addr_a), .data_a(fill_tag),  .q_a(tag_q_a),
+    .clock_b(clk), .wren_b(1'b0),          .address_b(cache_addr_b), .data_b(20'd0),     .q_b(tag_q_b)
+);
+
+dualport_ram_unreg #(.WIDTH(64), .WIDTHAD(10)) ddr_cache_data (
+    .clock_a(clk), .wren_a(cache_fill_we), .address_a(cache_addr_a), .data_a(arom_data), .q_a(data_q_a),
+    .clock_b(clk), .wren_b(1'b0),          .address_b(cache_addr_b), .data_b(64'd0),     .q_b(data_q_b)
+);
+
 
 reg   [1:0]   line_wr;
 write_entry_t line_wr_entry;
@@ -198,19 +247,14 @@ reg   [4:0] line_wr_color0;
 reg   [4:0] line_wr_color1;
 reg         prev_draw_complete;
 always_ff @(posedge clk) begin
-    logic        pop_entry;
-    logic        push_entry;
-    logic [1:0]  fifo_count_next;
-    write_entry_t fifo0_next;
-    write_entry_t fifo1_next;
-
     prev_draw_complete <= draw_complete;
     if (~draw_complete & prev_draw_complete) begin
         line_wr <= 0;
         line_wr_entry <= '0;
         line_wr_color0 <= 0;
         line_wr_color1 <= 0;
-        queue_state <= IDLE;
+        queue_state <= RUN;
+        cmp_valid <= 0;
 
         write_queue_head <= 0;
         write_queue_tail <= 0;
@@ -218,91 +262,68 @@ always_ff @(posedge clk) begin
         write_queue_fetch_pending <= 0;
         write_queue_fifo_count <= 0;
 
-        ddr_cache_valid <= 0;
-        // arom_req is a toggle handshake; leave it as-is across draw resets.
+        ddr_cache_hits_frame   <= ddr_cache_hits_acc;
+        ddr_cache_misses_frame <= ddr_cache_misses_acc;
+        ddr_cache_hits_acc   <= 0;
+        ddr_cache_misses_acc <= 0;
+        ddr_cache_counted    <= 0;
     end else begin
         if (valid_wr) begin
             write_queue_head <= write_queue_head + 1;
         end
 
         line_wr <= 0;
-        pop_entry = 0;
-        push_entry = write_queue_fetch_pending;
-        fifo_count_next = write_queue_fifo_count;
-        fifo0_next = wq_fifo0;
-        fifo1_next = wq_fifo1;
 
-        case(queue_state)
-            IDLE: begin
-                if (queue_valid & line_writable) begin
-                    if (ddr_cache_hit(wq_cur.sprite_index, wq_cur.arom_offset0) && ddr_cache_hit(wq_cur.sprite_index, wq_cur.arom_offset1)) begin
-                        line_wr <= wq_cur.wr;
-                        line_wr_entry <= wq_cur;
-                        line_wr_color0 <= color_value(wq_cur.sprite_index, wq_cur.arom_offset0);
-                        line_wr_color1 <= color_value(wq_cur.sprite_index, wq_cur.arom_offset1);
-                        pop_entry = 1;
-                    end else if (!ddr_cache_hit(wq_cur.sprite_index, wq_cur.arom_offset0)) begin
-                        arom_address <= arom_word_addr(wq_cur.arom_offset0);
-                        arom_req <= ~arom_req;
-                        queue_state <= WAIT1;
-                    end else if (!ddr_cache_hit(wq_cur.sprite_index, wq_cur.arom_offset1)) begin
-                        arom_address <= arom_word_addr(wq_cur.arom_offset1);
-                        arom_req <= ~arom_req;
-                        queue_state <= WAIT1;                        
-                    end
+        cmp_entry <= present_entry;
+        cmp_valid <= present_valid;
+
+        if (cmp_active) begin
+            if (!ddr_cache_counted) begin
+                ddr_cache_hits_acc   <= ddr_cache_hits_acc   + {31'd0, hit0} + {31'd0, hit1};
+                ddr_cache_misses_acc <= ddr_cache_misses_acc + {31'd0, ~hit0} + {31'd0, ~hit1};
+                ddr_cache_counted <= 1;
+            end
+
+            if (consume_now) begin
+                line_wr        <= cmp_entry.wr;
+                line_wr_entry  <= cmp_entry;
+                line_wr_color0 <= color_extract(data_q_a, cmp_entry.arom_offset0);
+                line_wr_color1 <= color_extract(data_q_b, cmp_entry.arom_offset1);
+                ddr_cache_counted <= 0;   // next entry may be counted
+            end else begin
+                // Miss: capture the missing word's slot/tag, kick the A-ROM fetch,
+                // and go FETCH; the entry stays at the FIFO head and is re-looked-up.
+                if (!hit0) begin
+                    fill_sprite  <= cmp_entry.sprite_index;
+                    fill_slot    <= cmp_entry.arom_offset0.words[3:2];
+                    fill_tag     <= cmp_entry.arom_offset0.words[23:4];
+                    arom_address <= arom_word_addr(cmp_entry.arom_offset0);
+                end else begin
+                    fill_sprite  <= cmp_entry.sprite_index;
+                    fill_slot    <= cmp_entry.arom_offset1.words[3:2];
+                    fill_tag     <= cmp_entry.arom_offset1.words[23:4];
+                    arom_address <= arom_word_addr(cmp_entry.arom_offset1);
                 end
-            end
-
-            WAIT2,
-            WAIT1: begin
-                if (arom_req == arom_ack) begin
-                    ddr_cache_valid <= 1;
-                    ddr_cache_addr[{wq_cur.sprite_index, arom_address[4:3]}] <= arom_address[24:5];
-                    ddr_cache_data[{wq_cur.sprite_index, arom_address[4:3]}] <= arom_data;
-                    queue_state <= IDLE; // retry now that the cache is updated
-                end
-            end
-
-            default: queue_state <= IDLE;
-        endcase
-
-        // Update the 2-entry staging FIFO in two simple steps:
-        // 1. pop the current entry if the consumer accepted it
-        // 2. push the newly fetched BRAM entry if one arrived this cycle
-        //
-        // Doing it in this order naturally handles the simultaneous pop+push case.
-        if (pop_entry) begin
-            if (write_queue_fifo_count == 2'd2) begin
-                fifo0_next = wq_fifo1;
-            end
-
-            if (write_queue_fifo_count != 2'd0) begin
-                fifo_count_next = write_queue_fifo_count - 1'b1;
+                arom_req <= ~arom_req;
+                queue_state <= FETCH;
             end
         end
 
-        if (push_entry) begin
-            case(fifo_count_next)
-                2'd0: fifo0_next = wq_fetch_data;
-                2'd1: fifo1_next = wq_fetch_data;
-                default: begin end
-            endcase
-
-            if (fifo_count_next != 2'd2) begin
-                fifo_count_next = fifo_count_next + 1'b1;
-            end
+        if (queue_state == FETCH && (arom_req == arom_ack)) begin
+            queue_state <= RUN;
         end
 
-        wq_fifo0 <= fifo0_next;
-        wq_fifo1 <= fifo1_next;
-        write_queue_fifo_count <= fifo_count_next;
+        wq_fifo0 <= fifo0_next_c;
+        wq_fifo1 <= fifo1_next_c;
+        write_queue_fifo_count <= fifo_count_next_c;
 
-        if (pop_entry) begin
+        if (pop_entry_c) begin
             write_queue_tail <= write_queue_tail + 1;
+            ddr_cache_counted <= 0;
         end
 
         write_queue_fetch_pending <= 0;
-        if ((write_queue_fetch != write_queue_head) && (fifo_count_next < 2)) begin
+        if ((write_queue_fetch != write_queue_head) && (fifo_count_next_c < 2)) begin
             write_queue_fetch <= write_queue_fetch + 1;
             write_queue_fetch_pending <= 1;
         end
@@ -311,7 +332,6 @@ end
 
 wire [7:0] free_line_begin = scan_line + 8'd1;
 wire [7:0] free_line_end = scan_line + 8'(NUM_LINE_BUFFERS) - 8'd1;
-wire line_writable = (wq_cur.line >= free_line_begin) && (wq_cur.line < free_line_end);
 wire [7:0] erase_line = scan_line - 8'b1;
 
 logic [NUM_LINE_BUFFERS-1:0] buf_wr0;
