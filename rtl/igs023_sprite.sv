@@ -321,6 +321,7 @@ reg [4:0] pixel_palette;
 reg [10:0] pixel_column;
 reg [10:0] pixel_next;
 reg [7:0] draw_line;
+reg [8:0] frame_draw_lines /* verilator public_flat */ = 0;
 arom_offset_t pixel0_offset, pixel1_offset;
 wire buffer_ready;
 reg draw_complete;
@@ -792,6 +793,8 @@ always_ff @(posedge clk) begin
         endcase
 
         if (dma_start) begin
+            // Latch how far last frame's draw got before this frame restarts it.
+            frame_draw_lines <= { 1'b0, draw_line };
             dma_state <= DMA_BUS_REQUEST;
             draw_complete <= 1;
             cpu_br_n <= 0;

@@ -152,6 +152,13 @@ reg [19:0] fill_tag;
 
 reg [31:0] ddr_cache_hits_frame   /* verilator public_flat */ = 0;
 reg [31:0] ddr_cache_misses_frame /* verilator public_flat */ = 0;
+// Perf metric: cycles the consumer had an entry ready but its target line was
+// outside the writable window (`cmp_valid & !cmp_writable`).  In a healthy frame
+// this is small (the draw is throttled a little ahead of scanout); when the draw
+// falls behind it balloons - stale entries scanout already passed can never become
+// writable, so the consumer bubbles on them and the whole pipeline stalls.
+reg [31:0] buffer_window_stall_frame /* verilator public_flat */ = 0;
+reg [31:0] buffer_window_stall_acc   = 0;
 reg [31:0] ddr_cache_hits_acc   = 0;
 reg [31:0] ddr_cache_misses_acc = 0;
 reg        ddr_cache_counted = 0;
@@ -267,6 +274,8 @@ always_ff @(posedge clk) begin
         ddr_cache_hits_acc   <= 0;
         ddr_cache_misses_acc <= 0;
         ddr_cache_counted    <= 0;
+        buffer_window_stall_frame <= buffer_window_stall_acc;
+        buffer_window_stall_acc   <= 0;
     end else begin
         if (valid_wr) begin
             write_queue_head <= write_queue_head + 1;
@@ -276,6 +285,10 @@ always_ff @(posedge clk) begin
 
         cmp_entry <= present_entry;
         cmp_valid <= present_valid;
+
+        // Perf: count cycles the head entry is ready but blocked by the line window.
+        if (cmp_valid && (queue_state == RUN) && !cmp_writable)
+            buffer_window_stall_acc <= buffer_window_stall_acc + 1'b1;
 
         if (cmp_active) begin
             if (!ddr_cache_counted) begin
