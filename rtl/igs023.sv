@@ -163,13 +163,7 @@ reg [9:0] hcnt;
 wire [10:0] logical_vcnt = { 2'b0, vcnt } - 40;
 wire [10:0] vcnt_eff = global_flip_y ? (11'd221 - logical_vcnt) : logical_vcnt;
 
-// Native hardware sync widths (hsync 63 clk = 6.3us, vsync 8 lines) match the
-// original PCB but are out of NTSC spec and fail to lock on some consumer CRTs.
-// When sync_fix is set, narrow both pulses toward NTSC (hsync 47 clk = 4.7us,
-// vsync 3 lines). The hsync trailing edge is held at hcnt 126 so the back porch
-// (and thus horizontal image centering) is unchanged; the vsync leading edge is
-// held at line 14 so vertical position is unchanged.
-wire hsync = sync_fix ? (hcnt >= 79 && hcnt < (79 + 47)) : (hcnt >= 63 && hcnt < (63 + 63));
+wire hsync = sync_fix ? (hcnt >= 63 && hcnt < (63 + 47)) : (hcnt >= 63 && hcnt < (63 + 63));
 wire hblank = hcnt < 192;
 wire vsync = sync_fix ? (vcnt >= 14 && vcnt < (14 + 3)) : (vcnt >= 14 && vcnt < (14 + 8));
 wire vblank = vcnt < 40;
