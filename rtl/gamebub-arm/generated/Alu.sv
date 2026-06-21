@@ -54,7 +54,7 @@ module Alu(
               : io_opcode_0 == 4'hC ? io_a_0 | io_b_0 : io_opcode_0 == 4'hE ? io_a_0 & ~io_b_0 : io_b_0;
   wire [31:0] io_out_0 = isArith ? arithOut : logicOut;
   wire        io_flagOut_n_0 = io_out_0[31];
-  wire        io_flagOut_z_0 = io_out_0 == 32'h0;
+  wire        io_flagOut_z_0 = isArith ? arithOut == 32'h0 : logicOut == 32'h0;
   wire        io_flagOut_c_0 = isArith ? arithC : io_shifterCarry_0;
   wire        io_flagOut_v_0 = isArith ? arithV : io_flagIn_v_0;
   assign io_out = io_out_0;

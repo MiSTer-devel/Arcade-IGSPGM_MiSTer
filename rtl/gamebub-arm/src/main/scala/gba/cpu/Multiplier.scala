@@ -32,12 +32,21 @@ class Multiplier extends Module {
   val accumulator = Reg(UInt(64.W))
   val output = Reg(UInt(64.W))
   val counter = Reg(UInt(2.W))
-  // Timing-closure split (see the start block below). For m >= 2 the full 32x32
-  // product is captured here and the 64-bit accumulate add is deferred one cycle
-  // into the countdown the FSM already spends, so no instruction cycle is added.
-  // `addPending` marks that deferred add. Both are dead at instruction boundaries
-  // (freeze only engages once `done`), so neither needs a savestate word.
+  // Timing-closure staging (see the start block below): the 32x32 multiply's operand
+  // read + DSP cascade is too deep to also feed a register in one cycle, so the work
+  // is spread across the cycles the FSM already spends (ARM m-cycle early termination),
+  // adding no instruction cycle:
+  //   m == 1 (numCycles 0): small 32x9 multiply + accumulate, one cycle (no spare).
+  //   m == 2 (numCycles 1): sized 32x17 product this cycle, accumulate add deferred.
+  //   m >= 3 (numCycles 2..3): latch operands, multiply from *registers* next cycle
+  //                            (DSP launches behind a reg, no operand-read in front),
+  //                            accumulate add the cycle after.
+  // aReg/bReg/product/multPending/addPending are all dead at instruction boundaries
+  // (freeze only engages once `done`), so none needs a savestate word.
+  val aReg = Reg(UInt(32.W))
+  val bReg = Reg(UInt(32.W))
   val product = Reg(UInt(64.W))
+  val multPending = RegInit(false.B)
   val addPending = RegInit(false.B)
 
   // Determine cycle length.
@@ -54,23 +63,27 @@ class Multiplier extends Module {
 
   val augend = Mux(io.accumulate, accumulator, 0.U)
 
-  // Full 32x32 product (signedness as today). Used for m >= 2, where the 64-bit
-  // accumulate add is split off into the next cycle so this stage is multiply-only.
-  val fullProduct = Mux(io.signed, (io.a.asSInt * io.b.asSInt).asUInt, io.a * io.b)
-
-  // Small 32x9 product for m == 1 (the only case with no spare cycle: the result
-  // is read one cycle after start). When m == 1 the multiplier operand Rs fits in
-  // 8 bits of magnitude, so bits[31:8] are all equal to bit 8 and the full product
-  // equals a * b[8:0]. A 32x9 multiply + the 64-bit add closes in a single cycle.
-  //   Signedness: signed long uses signed; unsigned long uses unsigned (and m == 1
-  //   there only via leading zeroes, so b[8] == 0); non-long (MUL/MLA) only needs
-  //   the low 32 bits, which a signed 32x9 reproduces for both prefix cases — so
-  //   force signed unless this is an unsigned *long* multiply.
-  val b9 = io.b(8, 0)
+  // Sized products for the short multiplies (m == 1, m == 2). When Rs early-terminates
+  // at m bytes, the bits above byte m are all equal to the sign bit, so the full
+  // product equals a * b[low 8*m+1 bits]. A narrower multiply closes in a single cycle
+  // where the full 32x32 cannot.
+  //   Signedness: signed long uses signed; unsigned long uses unsigned (m there only
+  //   via leading zeroes, so the extra bit is 0); non-long (MUL/MLA) only needs the
+  //   low 32 bits, which a signed multiply reproduces for both prefix cases — so force
+  //   signed unless this is an unsigned *long* multiply.
   val smallSigned = io.signed || !io.long
-  val smallProductS = Wire(SInt(64.W)); smallProductS := io.a.asSInt * b9.asSInt
-  val smallProductU = Wire(UInt(64.W)); smallProductU := io.a * b9
-  val smallProduct = Mux(smallSigned, smallProductS.asUInt, smallProductU)
+  val b9  = io.b(8, 0)
+  val b17 = io.b(16, 0)
+  val product9S  = Wire(SInt(64.W)); product9S  := io.a.asSInt * b9.asSInt
+  val product9U  = Wire(UInt(64.W)); product9U  := io.a * b9
+  val product9   = Mux(smallSigned, product9S.asUInt, product9U)   // m == 1 (32x9)
+  val product17S = Wire(SInt(64.W)); product17S := io.a.asSInt * b17.asSInt
+  val product17U = Wire(UInt(64.W)); product17U := io.a * b17
+  val product17  = Mux(smallSigned, product17S.asUInt, product17U) // m == 2 (32x17)
+
+  // Full 32x32 product from the *latched* operands (m >= 3). Launching the DSP from
+  // registers keeps the ~8 ns operand-read out of this cycle's path.
+  val regProduct = Mux(io.signed, (aReg.asSInt * bReg.asSInt).asUInt, aReg * bReg)
 
   when (io.enable) {
     when (io.loadAccumulator) {
@@ -78,18 +91,32 @@ class Multiplier extends Module {
     }
     when (io.start) {
       when (numCycles === 0.U) {
-        // m == 1: small multiply + accumulate, all in this cycle.
-        output := smallProduct + augend
+        // m == 1: small 32x9 multiply + accumulate, all in this cycle (no spare cycle).
+        output := product9 + augend
+        multPending := false.B
         addPending := false.B
-      } .otherwise {
-        // m >= 2: capture the full product now, add the augend next cycle.
-        product := fullProduct
+      } .elsewhen (numCycles === 1.U) {
+        // m == 2: capture the sized 32x17 product now; defer the add to the one
+        // countdown cycle the FSM already spends.
+        product := product17
+        multPending := false.B
         addPending := true.B
+      } .otherwise {
+        // m >= 3: latch the operands; the multiply runs next cycle from registers.
+        aReg := io.a
+        bReg := io.b
+        multPending := true.B
+        addPending := false.B
       }
       counter := numCycles
+    } .elsewhen (multPending) {
+      // Registered-operand multiply (m >= 3): the DSP launches behind a register.
+      product := regProduct
+      multPending := false.B
+      addPending := true.B
     } .elsewhen (addPending) {
-      // Deferred accumulate add — lands on the first countdown cycle, which the
-      // FSM already spends before `done`, so no instruction cycle is added.
+      // Deferred 64-bit accumulate add — lands on a countdown cycle the FSM already
+      // spends before `done`, so no instruction cycle is added.
       output := product + augend
       addPending := false.B
     }

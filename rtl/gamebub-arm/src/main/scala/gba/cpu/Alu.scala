@@ -108,7 +108,11 @@ class Alu extends Module {
   io.out := Mux(isArith, arithOut, logicOut)
 
   io.flagOut.n := io.out(31)
-  io.flagOut.z := io.out === 0.U
+  // Z is the 50 MHz-critical flag: reducing the 32-bit *muxed* io.out puts the
+  // arith/logic result mux in series ahead of the 32-input zero-detect. Reduce each
+  // candidate in parallel instead and mux the single Z bit, so the zero-detect starts
+  // straight off the adder/logic output (the result mux is off this critical leg).
+  io.flagOut.z := Mux(isArith, arithOut === 0.U, logicOut === 0.U)
   io.flagOut.c := Mux(isArith, arithC, io.shifterCarry)
   io.flagOut.v := Mux(isArith, arithV, io.flagIn.v)
 }

@@ -35,7 +35,10 @@ module Multiplier(
   reg  [63:0] accumulator;
   reg  [63:0] output_0;
   reg  [1:0]  counter;
+  reg  [31:0] aReg;
+  reg  [31:0] bReg;
   reg  [63:0] product;
+  reg         multPending;
   reg         addPending;
   wire [1:0]  prefixZeroes_lo = {io_b_0[23:16] == 8'h0, io_b_0[31:24] == 8'h0};
   wire [1:0]  prefixZeroes_hi = {io_b_0[7:0] == 8'h0, io_b_0[15:8] == 8'h0};
@@ -51,14 +54,19 @@ module Multiplier(
           ? 2'h1
           : {1'h1, ~(prefixZeroes[0] | prefixOnes[0] & termOnes)};
   wire [63:0] augend = io_accumulate_0 ? accumulator : 64'h0;
-  wire [63:0] fullProduct =
-    io_signed_0 ? {{32{io_a_0[31]}}, io_a_0} * {{32{io_b_0[31]}}, io_b_0} : {32'h0, io_a_0} * {32'h0, io_b_0};
-  wire [8:0]  b9 = io_b_0[8:0];
   wire        smallSigned = io_signed_0 | ~io_long_0;
-  wire [40:0] _smallProductS_T_2 = {{9{io_a_0[31]}}, io_a_0} * {{32{b9[8]}}, b9};
-  wire [63:0] smallProductS = {{23{_smallProductS_T_2[40]}}, _smallProductS_T_2};
-  wire [63:0] smallProductU = {23'h0, {9'h0, io_a_0} * {32'h0, b9}};
-  wire [63:0] smallProduct = smallSigned ? smallProductS : smallProductU;
+  wire [8:0]  b9 = io_b_0[8:0];
+  wire [16:0] b17 = io_b_0[16:0];
+  wire [40:0] _product9S_T_2 = {{9{io_a_0[31]}}, io_a_0} * {{32{b9[8]}}, b9};
+  wire [63:0] product9S = {{23{_product9S_T_2[40]}}, _product9S_T_2};
+  wire [63:0] product9U = {23'h0, {9'h0, io_a_0} * {32'h0, b9}};
+  wire [63:0] product9 = smallSigned ? product9S : product9U;
+  wire [48:0] _product17S_T_2 = {{17{io_a_0[31]}}, io_a_0} * {{32{b17[16]}}, b17};
+  wire [63:0] product17S = {{15{_product17S_T_2[48]}}, _product17S_T_2};
+  wire [63:0] product17U = {15'h0, {17'h0, io_a_0} * {32'h0, b17}};
+  wire [63:0] product17 = smallSigned ? product17S : product17U;
+  wire [63:0] regProduct =
+    io_signed_0 ? {{32{aReg[31]}}, aReg} * {{32{bReg[31]}}, bReg} : {32'h0, aReg} * {32'h0, bReg};
   wire [31:0] io_outLo_0 = output_0[31:0];
   wire [31:0] io_outHi_0 = output_0[63:32];
   wire        _io_state_readData_T_4 = io_state_address_0 == 6'h0;
@@ -82,12 +90,18 @@ module Multiplier(
   always @(posedge clock) begin
     automatic logic [63:0] _accumulator_T;
     automatic logic        _GEN;
+    automatic logic        _GEN_0;
     automatic logic [63:0] _output_T;
+    automatic logic        _GEN_1;
     automatic logic [63:0] _output_T_2;
+    automatic logic        _GEN_2;
     _accumulator_T = {io_a_0, io_b_0};
     _GEN = io_enable_0 & io_loadAccumulator_0;
-    _output_T = smallProduct + augend;
+    _GEN_0 = numCycles == 2'h0;
+    _output_T = product9 + augend;
+    _GEN_1 = numCycles == 2'h1;
     _output_T_2 = product + augend;
+    _GEN_2 = multPending | ~addPending;
     if (io_state_writeEnable_0) begin
       if (_io_state_readData_T_4)
         accumulator <= {accumulator[63:32], io_state_writeData_0};
@@ -101,10 +115,12 @@ module Multiplier(
     if (~io_state_writeEnable_0 | _io_state_readData_T_4 | _io_state_readData_T_6) begin
       if (io_enable_0) begin
         if (io_start_0) begin
-          if (~(|numCycles))
+          if (_GEN_0)
             output_0 <= _output_T;
         end
-        else if (addPending)
+        else if (_GEN_2) begin
+        end
+        else
           output_0 <= _output_T_2;
       end
     end
@@ -114,10 +130,12 @@ module Multiplier(
       output_0 <= {io_state_writeData_0, io_outLo_0};
     else if (io_enable_0) begin
       if (io_start_0) begin
-        if (~(|numCycles))
+        if (_GEN_0)
           output_0 <= _output_T;
       end
-      else if (addPending)
+      else if (_GEN_2) begin
+      end
+      else
         output_0 <= _output_T_2;
     end
     if (~io_state_writeEnable_0 | _io_state_readData_T_4 | _io_state_readData_T_6 | _io_state_readData_T_8
@@ -131,12 +149,30 @@ module Multiplier(
     end
     else
       counter <= io_state_writeData_0[1:0];
-    if (io_enable_0 & io_start_0 & (|numCycles))
-      product <= fullProduct;
-    if (reset)
+    if (~(io_enable_0 & io_start_0) | _GEN_0 | _GEN_1) begin
+    end
+    else begin
+      aReg <= io_a_0;
+      bReg <= io_b_0;
+    end
+    if (io_enable_0) begin
+      if (io_start_0) begin
+        if (_GEN_0 | ~_GEN_1) begin
+        end
+        else
+          product <= product17;
+      end
+      else if (multPending)
+        product <= regProduct;
+    end
+    if (reset) begin
+      multPending <= 1'h0;
       addPending <= 1'h0;
-    else if (io_enable_0)
-      addPending <= io_start_0 & (|numCycles);
+    end
+    else if (io_enable_0) begin
+      multPending <= io_start_0 & ~_GEN_0 & ~_GEN_1;
+      addPending <= io_start_0 ? ~_GEN_0 & _GEN_1 : multPending;
+    end
   end // always @(posedge)
   assign io_outLo = io_outLo_0;
   assign io_outHi = io_outHi_0;
