@@ -58,66 +58,57 @@ class Alu extends Module {
     val flagOut = Output(new ConditionFlags)
   })
 
+  import AluOpcode._
+  val op = io.opcode
+
+  // ---- Single shared adder for all arithmetic ops (carry-select style) ----
+  // Every arithmetic op is mapped onto one 33-bit add of the form
+  //   sum = opA + opB + carryIn
+  // by pre-selecting/inverting operands and choosing the carry-in. The adder's
+  // carry-out (sum bit 32) is the ARM C flag for *both* add and subtract: a
+  // subtract a-b is computed as a + ~b + 1, whose carry-out is NOT(borrow) = C.
+  // This replaces the previous per-opcode +&/-& chains (multiple inferred adders
+  // + a wide result mux) with one adder feeding a shallow final mux.
+  val isAdd  = (op === add) || (op === cmn)
+  val isAdc  = op === adc
+  val isSub  = (op === sub) || (op === cmp)
+  val isSbc  = op === sbc
+  val isRsb  = op === rsb
+  val isRsc  = op === rsc
+  val isArith = isAdd || isAdc || isSub || isSbc || isRsb || isRsc
+
+  val swap     = isRsb || isRsc                       // reverse subtract: compute b - a
+  val subtract = isSub || isSbc || isRsb || isRsc
+  val opA      = Mux(swap, io.b, io.a)
+  val opBraw   = Mux(swap, io.a, io.b)
+  val opB      = Mux(subtract, (~opBraw).asUInt, opBraw)
+  // carry-in: add/cmn -> 0 ; adc/sbc/rsc -> C ; sub/cmp/rsb -> 1
+  val carryIn  = Mux(isAdc || isSbc || isRsc, io.flagIn.c,
+                  Mux(isSub || isRsb, true.B, false.B))
+  val sum      = (opA +& opB) +& carryIn.asUInt       // bit 32 = carry-out
+  val arithOut = sum(31, 0)
+  val arithC   = sum(32)
+
+  // Overflow kept in the original per-class form (in terms of the raw a/b operands).
+  val addV = !(io.a(31) ^ io.b(31)) && (io.a(31) ^ arithOut(31))   // add, adc, cmn
+  val subV =  (io.a(31) ^ io.b(31)) && (io.a(31) ^ arithOut(31))   // sub, cmp, sbc
+  val rsbV =  (io.a(31) ^ io.b(31)) && (io.b(31) ^ arithOut(31))   // rsb, rsc
+  val arithV = Mux(isAdd || isAdc, addV, Mux(isRsb || isRsc, rsbV, subV))
+
+  // ---- Logical / move results ----
+  val logicOut = WireDefault(io.b)                    // mov default
+  switch (op) {
+    is (mvn)      { logicOut := (~io.b).asUInt }
+    is (and, tst) { logicOut := io.a & io.b }
+    is (eor, teq) { logicOut := io.a ^ io.b }
+    is (orr)      { logicOut := io.a | io.b }
+    is (bic)      { logicOut := io.a & (~io.b).asUInt }
+  }
+
+  io.out := Mux(isArith, arithOut, logicOut)
+
   io.flagOut.n := io.out(31)
   io.flagOut.z := io.out === 0.U
-  io.flagOut.c := io.shifterCarry
-  io.flagOut.v := io.flagIn.v
-  io.out := DontCare
-
-  switch (io.opcode) {
-    is (AluOpcode.mov) {
-      io.out := io.b
-    }
-    is (AluOpcode.mvn) {
-      io.out := ~io.b
-    }
-    is (AluOpcode.add, AluOpcode.cmn) {
-      val temp = io.a +& io.b
-      io.out := temp
-      io.flagOut.c := temp(32)
-      io.flagOut.v := !(io.a(31) ^ io.b(31)) && (io.a(31) ^ io.out(31))
-    }
-    is (AluOpcode.adc) {
-      val temp = io.a +& io.b +& io.flagIn.c.asUInt
-      io.out := temp
-      io.flagOut.c := temp(32)
-      io.flagOut.v := !(io.a(31) ^ io.b(31)) && (io.a(31) ^ io.out(31))
-    }
-    is (AluOpcode.sub, AluOpcode.cmp) {
-      val temp = io.a -& io.b
-      io.out := temp
-      io.flagOut.c := !temp(32)
-      io.flagOut.v := (io.a(31) ^ io.b(31)) && (io.a(31) ^ io.out(31))
-    }
-    is (AluOpcode.sbc) {
-      val temp = io.a -& io.b -& (!io.flagIn.c).asUInt
-      io.out := temp
-      io.flagOut.c := !temp(32)
-      io.flagOut.v := (io.a(31) ^ io.b(31)) && (io.a(31) ^ io.out(31))
-    }
-    is (AluOpcode.rsb) {
-      val temp = io.b -& io.a
-      io.out := temp
-      io.flagOut.c := !temp(32)
-      io.flagOut.v := (io.a(31) ^ io.b(31)) && (io.b(31) ^ io.out(31))
-    }
-    is (AluOpcode.rsc) {
-      val temp = io.b -& io.a -& (!io.flagIn.c).asUInt
-      io.out := temp
-      io.flagOut.c := !temp(32)
-      io.flagOut.v := (io.a(31) ^ io.b(31)) && (io.b(31) ^ io.out(31))
-    }
-    is (AluOpcode.and, AluOpcode.tst) {
-      io.out := io.a & io.b
-    }
-    is (AluOpcode.eor, AluOpcode.teq) {
-      io.out := io.a ^ io.b
-    }
-    is (AluOpcode.orr) {
-      io.out := io.a | io.b
-    }
-    is (AluOpcode.bic) {
-      io.out := io.a & (~io.b).asUInt
-    }
-  }
+  io.flagOut.c := Mux(isArith, arithC, io.shifterCarry)
+  io.flagOut.v := Mux(isArith, arithV, io.flagIn.v)
 }

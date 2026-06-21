@@ -101,6 +101,35 @@ class ARM7TDMI extends Module {
     index + offset
   }
 
+  // Banked register *read* that avoids the bank-offset adder sitting in series
+  // ahead of a 31-deep Vec read mux (the dominant chunk of the 50 MHz critical
+  // read path). The common case (r0-r15) is a direct 16:1 read; the few banked
+  // physical copies (16-30) are read in parallel and selected late by mode.
+  // Must stay bit-identical to bankRegIndex() for every read. Used for operand
+  // reads only; writes still go through bankRegIndex (off the critical path).
+  private def bankedRead(index: UInt, mode: CpuMode.Type): UInt = {
+    val base = registers(index)                       // r0..r15, direct 16:1
+    val fiqBank = MuxLookup(index, base)(Seq(          // r8..r14 -> phys 24..30
+      8.U  -> registers(24.U),
+      9.U  -> registers(25.U),
+      10.U -> registers(26.U),
+      11.U -> registers(27.U),
+      12.U -> registers(28.U),
+      13.U -> registers(29.U),
+      14.U -> registers(30.U),
+    ))
+    val hi = index === 14.U                            // false => r13, true => r14
+    val shadow = MuxLookup(mode, base)(Seq(            // r13/r14 per privileged mode
+      CpuMode.Supervisor -> Mux(hi, registers(17.U), registers(16.U)),
+      CpuMode.Abort      -> Mux(hi, registers(19.U), registers(18.U)),
+      CpuMode.Undefined  -> Mux(hi, registers(21.U), registers(20.U)),
+      CpuMode.Irq        -> Mux(hi, registers(23.U), registers(22.U)),
+    ))
+    val is1314 = (index === 13.U) || (index === 14.U)
+    val fiqHit = (mode === CpuMode.Fiq) && (index >= 8.U) && (index <= 14.U)
+    Mux(fiqHit, fiqBank, Mux(is1314, shadow, base))
+  }
+
   val cpsr = RegInit((new ProgramStatusRegister).Lit(
     _.mode -> CpuMode.System,
     _.thumb -> false.B,
@@ -132,9 +161,17 @@ class ARM7TDMI extends Module {
   cpsrBus := cpsr
   val pc = registers(15)
   pcBus := pc
-  aBus := registers(bankRegIndex(control.regReadA))
+  // Operand reads bank purely off the *current* CPSR mode (a stable register
+  // output), NOT control.regBankMode. control.regBankMode is overridden to the
+  // exception's newMode inside an `execute`-gated (condition-eval) branch, which
+  // would otherwise place the condition evaluation in series before the read-port
+  // bankRegIndex adder — the front of the 50 MHz critical path. The exception
+  // cycle only reads r15 (PC, unbanked), so newMode is never needed for a read;
+  // it is still used for the banked *writeback* below. This is timing-only.
+  val regReadBankMode = cpsr.mode
+  aBus := bankedRead(control.regReadA, regReadBankMode)
   when (control.busB === BusBValue.RegisterB) {
-    bBus := registers(bankRegIndex(control.regReadB))
+    bBus := bankedRead(control.regReadB, regReadBankMode)
   } .elsewhen (control.busB === BusBValue.Cpsr) {
     bBus := cpsr.asUInt
   } .elsewhen (control.busB === BusBValue.Spsr) {
@@ -145,10 +182,9 @@ class ARM7TDMI extends Module {
       bBus := cpsr.asUInt
     }
   }
-  cBus := registers(
-    bankRegIndex(
-      control.regReadC,
-      Mux(control.regUserReadC, CpuMode.User, control.regBankMode))
+  cBus := bankedRead(
+    control.regReadC,
+    Mux(control.regUserReadC, CpuMode.User, regReadBankMode)
   )
   when (enable) {
     when (control.regWriteEnable) {

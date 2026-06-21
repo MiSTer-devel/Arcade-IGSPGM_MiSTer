@@ -15,76 +15,48 @@ module Alu(
                 io_flagOut_v
 );
 
-  wire [3:0]        io_opcode_0 = io_opcode;
-  wire [31:0]       io_a_0 = io_a;
-  wire [31:0]       io_b_0 = io_b;
-  wire              io_flagIn_n_0 = io_flagIn_n;
-  wire              io_flagIn_z_0 = io_flagIn_z;
-  wire              io_flagIn_c_0 = io_flagIn_c;
-  wire              io_flagIn_v_0 = io_flagIn_v;
-  wire              io_shifterCarry_0 = io_shifterCarry;
-  wire [31:0]       io_out_0;
-  wire              io_flagOut_n_0 = io_out_0[31];
-  wire              io_flagOut_z_0 = io_out_0 == 32'h0;
-  wire              _GEN = io_opcode_0 == 4'h4 | io_opcode_0 == 4'hB;
-  wire [32:0]       _GEN_0 = {1'h0, io_a_0};
-  wire [32:0]       _GEN_1 = {1'h0, io_b_0};
-  wire [32:0]       temp = _GEN_0 + _GEN_1;
-  wire              _GEN_2 = io_opcode_0 == 4'h5;
-  wire [33:0]       temp_1 = {1'h0, _GEN_0 + _GEN_1} + {33'h0, io_flagIn_c_0};
-  wire              _GEN_3 = io_opcode_0 == 4'h2 | io_opcode_0 == 4'hA;
-  wire [32:0]       temp_2 = _GEN_0 - _GEN_1;
-  wire              _GEN_4 = io_opcode_0 == 4'h6;
-  wire [33:0]       temp_3 = {1'h0, _GEN_0 - _GEN_1} - {33'h0, ~io_flagIn_c_0};
-  wire              _GEN_5 = io_opcode_0 == 4'h3;
-  wire [32:0]       temp_4 = _GEN_1 - _GEN_0;
-  wire              _GEN_6 = io_opcode_0 == 4'h7;
-  wire [33:0]       temp_5 = {1'h0, _GEN_1 - _GEN_0} - {33'h0, ~io_flagIn_c_0};
-  wire              _GEN_7 = io_opcode_0 == 4'hD | (&io_opcode_0);
-  wire              io_flagOut_c_0 =
-    _GEN_7
-      ? io_shifterCarry_0
-      : _GEN
-          ? temp[32]
-          : _GEN_2
-              ? temp_1[32]
-              : _GEN_3
-                  ? ~(temp_2[32])
-                  : _GEN_4 ? ~(temp_3[32]) : _GEN_5 ? ~(temp_4[32]) : _GEN_6 ? ~(temp_5[32]) : io_shifterCarry_0;
-  wire              io_flagOut_v_0 =
-    _GEN_7
-      ? io_flagIn_v_0
-      : _GEN
-          ? (io_a_0[31] ^ ~(io_b_0[31])) & (io_a_0[31] ^ io_flagOut_n_0)
-          : _GEN_2
-              ? (io_a_0[31] ^ ~(io_b_0[31])) & (io_a_0[31] ^ io_flagOut_n_0)
-              : _GEN_3
-                  ? (io_a_0[31] ^ io_b_0[31]) & (io_a_0[31] ^ io_flagOut_n_0)
-                  : _GEN_4
-                      ? (io_a_0[31] ^ io_b_0[31]) & (io_a_0[31] ^ io_flagOut_n_0)
-                      : _GEN_5
-                          ? (io_a_0[31] ^ io_b_0[31]) & (io_b_0[31] ^ io_flagOut_n_0)
-                          : _GEN_6 ? (io_a_0[31] ^ io_b_0[31]) & (io_b_0[31] ^ io_flagOut_n_0) : io_flagIn_v_0;
-  wire [31:0]       _io_out_T_1 = io_a_0 & io_b_0;
-  wire [31:0]       _io_out_T_2 = io_a_0 ^ io_b_0;
-  wire [15:0][31:0] _GEN_8 =
-    {{~io_b_0},
-     {io_a_0 & ~io_b_0},
-     {io_b_0},
-     {io_a_0 | io_b_0},
-     {temp[31:0]},
-     {temp_2[31:0]},
-     {_io_out_T_2},
-     {_io_out_T_1},
-     {temp_5[31:0]},
-     {temp_3[31:0]},
-     {temp_1[31:0]},
-     {temp[31:0]},
-     {temp_4[31:0]},
-     {temp_2[31:0]},
-     {_io_out_T_2},
-     {_io_out_T_1}};
-  assign io_out_0 = _GEN_8[io_opcode_0];
+  wire [3:0]  io_opcode_0 = io_opcode;
+  wire [31:0] io_a_0 = io_a;
+  wire [31:0] io_b_0 = io_b;
+  wire        io_flagIn_n_0 = io_flagIn_n;
+  wire        io_flagIn_z_0 = io_flagIn_z;
+  wire        io_flagIn_c_0 = io_flagIn_c;
+  wire        io_flagIn_v_0 = io_flagIn_v;
+  wire        io_shifterCarry_0 = io_shifterCarry;
+  wire        isAdd = io_opcode_0 == 4'h4 | io_opcode_0 == 4'hB;
+  wire        isAdc = io_opcode_0 == 4'h5;
+  wire        isSub = io_opcode_0 == 4'h2 | io_opcode_0 == 4'hA;
+  wire        isSbc = io_opcode_0 == 4'h6;
+  wire        isRsb = io_opcode_0 == 4'h3;
+  wire        isRsc = io_opcode_0 == 4'h7;
+  wire        _arithV_T = isAdd | isAdc;
+  wire        isArith = _arithV_T | isSub | isSbc | isRsb | isRsc;
+  wire        swap = isRsb | isRsc;
+  wire        subtract = isSub | isSbc | isRsb | isRsc;
+  wire [31:0] opA = swap ? io_b_0 : io_a_0;
+  wire [31:0] opBraw = swap ? io_a_0 : io_b_0;
+  wire [31:0] opB = {32{subtract}} ^ opBraw;
+  wire        carryIn = isAdc | isSbc | isRsc ? io_flagIn_c_0 : isSub | isRsb;
+  wire [33:0] sum = {1'h0, {1'h0, opA} + {1'h0, opB}} + {33'h0, carryIn};
+  wire [31:0] arithOut = sum[31:0];
+  wire        arithC = sum[32];
+  wire        addV = (io_a_0[31] ^ ~(io_b_0[31])) & (io_a_0[31] ^ arithOut[31]);
+  wire        subV = (io_a_0[31] ^ io_b_0[31]) & (io_a_0[31] ^ arithOut[31]);
+  wire        rsbV = (io_a_0[31] ^ io_b_0[31]) & (io_b_0[31] ^ arithOut[31]);
+  wire        arithV = _arithV_T ? addV : swap ? rsbV : subV;
+  wire [31:0] logicOut =
+    (&io_opcode_0)
+      ? ~io_b_0
+      : io_opcode_0 == 4'h0 | io_opcode_0 == 4'h8
+          ? io_a_0 & io_b_0
+          : io_opcode_0 == 4'h1 | io_opcode_0 == 4'h9
+              ? io_a_0 ^ io_b_0
+              : io_opcode_0 == 4'hC ? io_a_0 | io_b_0 : io_opcode_0 == 4'hE ? io_a_0 & ~io_b_0 : io_b_0;
+  wire [31:0] io_out_0 = isArith ? arithOut : logicOut;
+  wire        io_flagOut_n_0 = io_out_0[31];
+  wire        io_flagOut_z_0 = io_out_0 == 32'h0;
+  wire        io_flagOut_c_0 = isArith ? arithC : io_shifterCarry_0;
+  wire        io_flagOut_v_0 = isArith ? arithV : io_flagIn_v_0;
   assign io_out = io_out_0;
   assign io_flagOut_n = io_flagOut_n_0;
   assign io_flagOut_z = io_flagOut_z_0;
