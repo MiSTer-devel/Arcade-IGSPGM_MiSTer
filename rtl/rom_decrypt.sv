@@ -62,6 +62,25 @@ localparam logic [7:0] PHOTOY2K_TAB [256] = '{
     8'h92, 8'h14, 8'h23, 8'hae, 8'h4b, 8'h80, 8'hae, 8'h6a, 8'h56, 8'h01, 8'hac, 8'h55, 8'hf7, 8'h6d, 8'h9b, 8'h6d
 };
 
+localparam logic [7:0] PUZZLI2_TAB[256] = '{
+    8'hb7, 8'h66, 8'ha3, 8'hc0, 8'h51, 8'h55, 8'h6d, 8'h63, 8'h86, 8'h60, 8'h64, 8'h6c, 8'h67, 8'h18, 8'h0b, 8'h05,
+    8'h62, 8'hff, 8'he0, 8'h1e, 8'h30, 8'h21, 8'h2e, 8'h40, 8'h41, 8'hb9, 8'h60, 8'h38, 8'hd1, 8'h24, 8'h7e, 8'h36,
+    8'h7a, 8'h0b, 8'h1c, 8'h69, 8'h4f, 8'h09, 8'he1, 8'h9e, 8'hcf, 8'hcd, 8'h7c, 8'h00, 8'h73, 8'h08, 8'h77, 8'h37,
+    8'h5f, 8'h50, 8'h32, 8'h3e, 8'hd3, 8'h54, 8'h77, 8'h6b, 8'h60, 8'h60, 8'h74, 8'h7c, 8'h55, 8'h4f, 8'h44, 8'h5e,
+    8'h66, 8'h5c, 8'h58, 8'h26, 8'h35, 8'h29, 8'h3f, 8'h35, 8'h3f, 8'h1c, 8'h0b, 8'h0d, 8'h08, 8'h5b, 8'h59, 8'h5c,
+    8'ha0, 8'ha5, 8'h87, 8'h85, 8'h24, 8'h75, 8'h5f, 8'h42, 8'h1b, 8'hf3, 8'h1a, 8'h58, 8'h17, 8'h58, 8'h71, 8'h6b,
+    8'h69, 8'h89, 8'h7d, 8'h3a, 8'hf3, 8'hc4, 8'h5d, 8'ha0, 8'h4f, 8'h27, 8'h58, 8'hc4, 8'ha8, 8'hdd, 8'ha8, 8'hfb,
+    8'hbe, 8'ha4, 8'he2, 8'hee, 8'h07, 8'h10, 8'h90, 8'h72, 8'h99, 8'h08, 8'h68, 8'h6d, 8'h5c, 8'h5c, 8'h6d, 8'h58,
+    8'h2f, 8'hdc, 8'h15, 8'hd5, 8'hd6, 8'hd6, 8'h3b, 8'h3b, 8'hf9, 8'h32, 8'hcc, 8'hdd, 8'hd4, 8'hf1, 8'hea, 8'hed,
+    8'he4, 8'hf6, 8'hf2, 8'h91, 8'hca, 8'hc1, 8'hed, 8'hf2, 8'hf6, 8'hfb, 8'hc0, 8'he8, 8'he3, 8'he7, 8'hfa, 8'hf1,
+    8'hf5, 8'h08, 8'h26, 8'h2b, 8'h2f, 8'h34, 8'h39, 8'h13, 8'h28, 8'h07, 8'h88, 8'h5b, 8'h8f, 8'h94, 8'h9b, 8'h2e,
+    8'hf5, 8'hab, 8'h72, 8'h76, 8'h7a, 8'h40, 8'hb9, 8'h09, 8'hd8, 8'h3b, 8'hcd, 8'h31, 8'h3d, 8'h42, 8'hab, 8'hb1,
+    8'hb5, 8'hb9, 8'h3b, 8'he3, 8'h0b, 8'h65, 8'h18, 8'hfb, 8'h1f, 8'h12, 8'he4, 8'he8, 8'hec, 8'hf2, 8'hf7, 8'hfc,
+    8'hc0, 8'he8, 8'he0, 8'he6, 8'hfa, 8'hf1, 8'hf4, 8'h0b, 8'h26, 8'h2b, 8'h30, 8'h35, 8'h39, 8'h13, 8'h29, 8'h21,
+    8'h0c, 8'h11, 8'h16, 8'h1b, 8'h1f, 8'h64, 8'h0e, 8'h60, 8'h05, 8'h79, 8'h7c, 8'h37, 8'h00, 8'h0f, 8'h4f, 8'h38,
+    8'h1d, 8'h18, 8'ha2, 8'hb6, 8'hb2, 8'ha9, 8'hac, 8'hab, 8'hae, 8'h91, 8'h98, 8'h8d, 8'h91, 8'hbb, 8'hb1, 8'hc0
+};
+
 // CAVE type1 (recreated internal ROM) 68k decrypt tables (MAME pgmcrypt.cpp).
 localparam logic [7:0] KET_TAB[256] = '{
     8'h49, 8'h47, 8'h53, 8'h30, 8'h30, 8'h30, 8'h34, 8'h52, 8'h44, 8'h31, 8'h30, 8'h32, 8'h31, 8'h30, 8'h31, 8'h35,
@@ -164,6 +183,19 @@ always_comb begin
                     if ((i & 23'h001800) != 23'd0)                                       x = x ^ 16'h0040;
                     if ((i & 23'h004820) == 23'h004820)                                  x = x ^ 16'h0080;
                     x = x ^ {PHOTOY2K_TAB[i[7:0]], 8'h00};
+                end
+            end
+            GAME_PUZZLI2: begin // rom_size 0x100000 bytes -> 0x80000 words (MAME pgm_puzzli2_decrypt)
+                if (word_addr < 23'h100000) begin
+                    if ((i & 23'h040080) != 23'h000080)                                  x = x ^ 16'h0001; // CRYPT1
+                    if ((i & 23'h004008) == 23'h004008)                                  x = x ^ 16'h0002; // CRYPT2_ALT
+                    if ((i & 23'h000030) == 23'h000010)                                  x = x ^ 16'h0004; // CRYPT3_ALT2
+                    if ((i & 23'h000242) != 23'h000042)                                  x = x ^ 16'h0008; // CRYPT4
+                    if ((i & 23'h008100) == 23'h008000)                                  x = x ^ 16'h0010; // CRYPT5
+                    if ((i & 23'h022004) != 23'h000004)                                  x = x ^ 16'h0020; // CRYPT6_ALT
+                    if ((i & 23'h011800) != 23'h010000)                                  x = x ^ 16'h0040; // CRYPT7
+                    if ((i & 23'h004820) == 23'h004820)                                  x = x ^ 16'h0080; // CRYPT8
+                    x = x ^ {PUZZLI2_TAB[i[7:0]], 8'h00};
                 end
             end
             GAME_KET: begin // CAVE type1; whole prog encrypted (region word index from 0)

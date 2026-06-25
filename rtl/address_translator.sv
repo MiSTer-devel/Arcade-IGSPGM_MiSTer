@@ -109,7 +109,7 @@ always_comb begin
 
         // IGS027A ARM (kovsh / type1): shared RAM @0x4f0000-0x4f003f,
         // command/response latch @0x500000-0x500003.
-        if (game == GAME_KOVSH || game == GAME_PHOTOY2K) begin
+        if (game == GAME_KOVSH || game == GAME_PHOTOY2K || game == GAME_PUZZLI2) begin
             ARM_SHAREn = ~(cpu_word_addr[23:6] == 18'h13c00);  // 0x4f0000-0x4f003f
             ARM_LATCHn = ~(cpu_word_addr[23:2] == 22'h140000); // 0x500000-0x500003
             ROMn = ROMn | ~ARM_SHAREn | ~ARM_LATCHn;           // carve out of ROM window

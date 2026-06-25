@@ -536,9 +536,12 @@ wire [15:0] IN2 = { 4'b0, joystick_p4[7], joystick_p3[7], joystick_p2[7], joysti
 wire [15:0] IN3 = { 8'b0, dipswitch };
 
 
+// MAME init_puzzli2 sets m_irq4_disabled.
+wire irq4_cpu = (game == GAME_PUZZLI2) ? 1'b0 : irq4;
+
 assign IPLn = ss_irq ? ~3'b111 :
               irq6 ? ~3'b110 :
-              irq4 ? ~3'b100 :
+              irq4_cpu ? ~3'b100 :
               ~3'b000;
 
 address_translator address_translator(
@@ -945,7 +948,8 @@ wire arm_type3 = (game == GAME_DMNFRNT) || (game == GAME_THEGLAD) || (game == GA
 // IGS027A type1 CAVE (ket/espgal/ddp3): recreated internal ROM, latch-only, 20 MHz,
 // no external ARM ROM (arm_has_exrom stays 0 via the type2/3-only definition below).
 wire arm_type1_cave = (game == GAME_KET) || (game == GAME_ESPGAL) || (game == GAME_DDP3);
-wire arm_game = (game == GAME_KOVSH) || (game == GAME_PHOTOY2K) || arm_type1_cave || arm_type2 || arm_type3;
+wire arm_game = (game == GAME_KOVSH) || (game == GAME_PHOTOY2K) || (game == GAME_PUZZLI2) ||
+                arm_type1_cave || arm_type2 || arm_type3;
 wire i22_game = (game == GAME_KILLBLD) || (game == GAME_DRGW3);
 
 wire [31:0] a27_cache_addr, i22_cache_addr;

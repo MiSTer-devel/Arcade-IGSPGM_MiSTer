@@ -140,7 +140,8 @@ package system_consts;
         GAME_DDP3     = 8'd24,   // IGS027A type1 (CAVE), 20 MHz, recreated int ROM
         GAME_KILLBLDP = 8'd25,   // IGS027A type3 (55857G), 33.8688 MHz
         GAME_HAPPY6   = 8'd26,   // IGS027A type3 (55857G), 24 MHz, scrambled gfx/audio ROMs
-        GAME_DWEX     = 8'd27    // never sent to RTL: dwex loads with the GAME_DRGW3 board id
+        GAME_DWEX     = 8'd27,   // never sent to RTL: dwex loads with the GAME_DRGW3 board id
+        GAME_PUZZLI2  = 8'd28    // IGS027A type1, 20 MHz, recreated int ROM; IRQ4 disabled
     } game_t;
 
     typedef struct packed {
