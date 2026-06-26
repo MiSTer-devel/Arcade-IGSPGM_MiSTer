@@ -135,6 +135,17 @@ reg [22:0] spr_brom_addr;
 
 
 wire [8:0] spr_y_end = spr_height - 9'd1;
+logic [4:0] spr_y_scale_idx;
+
+always_comb begin
+    bit [8:0] y;
+    if (spr_y_flip) begin
+        y = spr_y_end - spr.source_line;
+    end else begin
+        y = spr.source_line;
+    end
+    spr_y_scale_idx = y[4:0];       
+end
 
 typedef struct
 {
@@ -252,6 +263,13 @@ begin
         v[14],
         v[15]
     };
+end
+endfunction
+
+function automatic [31:0] reverse_bits32(input [31:0] v);
+begin
+    reverse_bits32[15:0] = reverse_bits16(v[31:16]);
+    reverse_bits32[31:16] = reverse_bits16(v[15:0]);
 end
 endfunction
 
@@ -402,12 +420,13 @@ always_ff @(posedge clk) begin
 
             if (spr_y_flip ^ global_flip_y) begin
                 spr_brom_base_addr <= spr_brom_addr + 32'd3 + ({17'b0, spr_width} * {14'b0, spr_height});
+                spr_x_scale_bits <= scale_pattern[spr_scale_x];
             end else begin
                 spr_brom_base_addr <= spr_brom_addr;
+                spr_x_scale_bits <= reverse_bits32(scale_pattern[spr_scale_x]);
             end
+            spr_y_scale_bits <= reverse_bits32(scale_pattern[spr_scale_y]);
             spr_scaled_width <= tmp_scaled_w;
-            spr_x_scale_bits <= scale_pattern[spr_scale_x];
-            spr_y_scale_bits <= scale_pattern[spr_scale_y];
         end
 
         case(dma_state)
@@ -546,7 +565,7 @@ always_ff @(posedge clk) begin
                     if (spr_y_zoom) begin
                         spr.screen_line <= spr.screen_line + 1;
                         spr.repeated <= 0;
-                        if (spr.repeated | ~spr_y_scale_bits[spr.source_line[4:0]]) begin
+                        if (spr.repeated | ~spr_y_scale_bits[spr_y_scale_idx]) begin
                             spr.source_line <= spr.source_line + 1;
                             spr_saved <= spr;
                         end else begin
@@ -557,7 +576,7 @@ always_ff @(posedge clk) begin
                         end
                     end else begin
                         spr.source_line <= spr.source_line + 1;
-                        if (~spr_y_scale_bits[spr.source_line[4:0]]) spr.screen_line <= spr.screen_line + 1;
+                        if (~spr_y_scale_bits[spr_y_scale_idx]) spr.screen_line <= spr.screen_line + 1;
                         spr_saved <= spr;
                     end
                     tmp_x <= 0;
@@ -627,7 +646,7 @@ always_ff @(posedge clk) begin
                     if (spr_y_zoom) begin
                         spr.screen_line <= spr.screen_line + 1;
                         spr.repeated <= 0;
-                        if (spr.repeated | ~spr_y_scale_bits[spr.source_line[4:0]]) begin
+                        if (spr.repeated | ~spr_y_scale_bits[spr_y_scale_idx]) begin
                             spr.source_line <= spr.source_line + 1;
                         end else begin
                             spr.repeated <= 1;
@@ -644,7 +663,7 @@ always_ff @(posedge clk) begin
                     end
                     dma_state <= DRAW_ROW_END;
 
-                    if (~spr_y_zoom & spr_y_scale_bits[spr.source_line[4:0]]) begin
+                    if (~spr_y_zoom & spr_y_scale_bits[spr_y_scale_idx]) begin
                         dma_state <= SKIP_ROW;
                         tmp_x <= 0;
                     end

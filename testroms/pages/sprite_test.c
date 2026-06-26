@@ -127,7 +127,7 @@ static void update()
             case 1:
                 for( int i = 0; i < count; i++ )
                 {
-                    SpriteSimple(i, &box_opaque_32x8, i % 2, sprite_x + (i * 2), sprite_y);
+                    SpriteSimple(i, &drop_shadow_96, i % 2, sprite_x + (i * 2), sprite_y);
                 }
                 SpriteEndMarker(count);
                 break;
