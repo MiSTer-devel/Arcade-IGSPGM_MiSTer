@@ -159,17 +159,15 @@ module memory_stream #(parameter COUNT = 32)
                 end
 
                 READ_HEADER_WAIT: begin
-                    if (~ddr.busy) begin
-                        ddr.read <= 0;
-                        if (ddr.rdata_ready) begin
-                            header_data <= ddr.rdata;
+                    if (~ddr.busy) ddr.read <= 0;
+                    if (ddr.rdata_ready) begin
+                        header_data <= ddr.rdata;
 
-                            if (is_reading) begin
-                                end_addr <= current_addr + { ddr.rdata[61:32], 2'b00 };
-                                state <= READ_MEM_REQ;
-                            end else begin
-                                state <= QUERY_GATHER_FIRST;
-                            end
+                        if (is_reading) begin
+                            end_addr <= current_addr + { ddr.rdata[61:32], 2'b00 };
+                            state <= READ_MEM_REQ;
+                        end else begin
+                            state <= QUERY_GATHER_FIRST;
                         end
                     end
                 end
@@ -205,25 +203,25 @@ module memory_stream #(parameter COUNT = 32)
                 end
 
                 READ_MEM_WAIT: begin
-                    if (!ddr.busy) begin
-                        ddr.read <= 0;
-                        if (ddr.rdata_ready) begin
-                            buffer <= ddr.rdata;
-                            if (chunk_remaining == 0) begin
-                                if (&ddr.rdata[63:56]) begin
-                                    state <= IDLE;
-                                end else begin
-                                    chunk_remaining <= ddr.rdata[31:0];
-                                    chunk_width <= ddr.rdata[33:32];
-                                    chunk_index <= ddr.rdata[56+CHUNK_BITS-1:56];
-                                    write_req <= 1;
-                                    query_req <= 1;
-                                    query_delay <= 0;
-                                    state <= QUERY_SCATTER_WAIT;
-                                end
+                    if (~ddr.busy) ddr.read <= 0;
+                    if (ddr.rdata_ready) begin
+                        buffer <= ddr.rdata;
+                        if (chunk_remaining == 0) begin
+                            // handle corrupt states
+                            if (&ddr.rdata[63:56] ||
+                                (ddr.rdata[31:0] > (end_addr - current_addr))) begin
+                                state <= IDLE;
                             end else begin
-                                state <= READ_STREAM;
+                                chunk_remaining <= ddr.rdata[31:0];
+                                chunk_width <= ddr.rdata[33:32];
+                                chunk_index <= ddr.rdata[56+CHUNK_BITS-1:56];
+                                write_req <= 1;
+                                query_req <= 1;
+                                query_delay <= 0;
+                                state <= QUERY_SCATTER_WAIT;
                             end
+                        end else begin
+                            state <= READ_STREAM;
                         end
                     end
                 end
