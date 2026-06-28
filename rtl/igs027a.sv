@@ -98,7 +98,7 @@ module igs027a #(
     wire        save_window = ss_pause;        // high for whole save AND restore window
     wire        io_saveReq  = save_window;
     wire        arm_io_safe;
-    wire        arm_frozen  = arm_io_safe;     // core frozen at a pipeline boundary
+    wire        arm_frozen /* verilator public_flat */ = arm_io_safe;     // core frozen at a pipeline boundary
     assign      ss_ready    = ~save_window | arm_frozen;
 
     // During the save window step the core on raw clk (ce_arm is dead while paused)
@@ -307,6 +307,8 @@ module igs027a #(
 
     logic        wr_pend;
     logic [31:0] wr_addr;
+    logic [31:0] wr_data /* verilator public_flat */;
+    logic        arm_advance_d;   // arm_advance delayed 1 cycle -> store data phase
     logic [3:0]  wr_be;
     wire  [31:0] wr_wmask = {{8{wr_be[3]}}, {8{wr_be[2]}}, {8{wr_be[1]}}, {8{wr_be[0]}}};
     wire wsel_iram   = (wr_addr[31:24] == 8'h10) || (wr_addr[31:24] == 8'h18);
@@ -341,8 +343,8 @@ module igs027a #(
     //      cache stays the coherence point (no separate flush/invalidate). The
     //      ARM is frozen during the SS window, so SS owns the cache ports. ----
     typedef enum logic [1:0] { SI_IDLE, SI_RD, SI_WR, SI_WAIT } si_t;
-    si_t         si_state;
-    logic        ss_iram_rd, ss_iram_wr;
+    si_t         si_state /* verilator public_flat */;
+    logic        ss_iram_rd /* verilator public_flat */, ss_iram_wr /* verilator public_flat */;
     logic [15:0] ss_iram_word;   // 16-bit word index: full 256KB iram (65536 words)
     wire         ss_iram_own  = arm_frozen;
     wire [31:0]  ss_iram_addr = PROT_IRAM_DDR_BASE + {14'd0, ss_iram_word, 2'b00};
@@ -365,7 +367,8 @@ module igs027a #(
     wire        ramc_wr_req  = ss_iram_own ? ss_iram_wr  : (wr_pend & wsel_iram);
     wire [31:0] ramc_wr_addr = ss_iram_own ? ss_iram_addr
                                            : (PROT_IRAM_DDR_BASE + {13'd0, iram_off(wr_addr)});
-    wire [31:0] ramc_wr_data = ss_iram_own ? ssbus_iram.data[31:0] : arm_wdata;
+
+    wire [31:0] ramc_wr_data = ss_iram_own ? ssbus_iram.data[31:0] : wr_data;
     wire [3:0]  ramc_wr_be   = ss_iram_own ? 4'hf : wr_be;
 
     ram_cache #(.LINES(256), .DDR_BASE(PROT_IRAM_DDR_BASE)) iram_cache (
@@ -482,7 +485,7 @@ module igs027a #(
         .clk(clk), .reset(reset),
         .arm_rd (arm_sh_rd & ~bank_arm), .arm_rd_off(arm_rd_off),
         .arm_wr (arm_sh_wr & ~bank_arm), .arm_wr_off(arm_wr_off),
-        .arm_wdata(arm_wdata), .arm_be(wr_be), .arm_q(c0_arm_q), .arm_ready(c0_arm_rdy),
+        .arm_wdata(wr_data), .arm_be(wr_be), .arm_q(c0_arm_q), .arm_ready(c0_arm_rdy),
         .m68k_rd(m68k_rd_q & ~bank_68k), .m68k_wr(m68k_wr_q & ~bank_68k),
         .m68k_off(m68k_off), .m68k_wdata(m68k_wd), .m68k_be(m68k_be),
         .m68k_q(c0_m68k_q), .m68k_ready(c0_m68k_rdy),
@@ -494,7 +497,7 @@ module igs027a #(
         .clk(clk), .reset(reset),
         .arm_rd (arm_sh_rd & bank_arm), .arm_rd_off(arm_rd_off),
         .arm_wr (arm_sh_wr & bank_arm), .arm_wr_off(arm_wr_off),
-        .arm_wdata(arm_wdata), .arm_be(wr_be), .arm_q(c1_arm_q), .arm_ready(c1_arm_rdy),
+        .arm_wdata(wr_data), .arm_be(wr_be), .arm_q(c1_arm_q), .arm_ready(c1_arm_rdy),
         .m68k_rd(m68k_rd_q & bank_68k), .m68k_wr(m68k_wr_q & bank_68k),
         .m68k_off(m68k_off), .m68k_wdata(m68k_wd), .m68k_be(m68k_be),
         .m68k_q(c1_m68k_q), .m68k_ready(c1_m68k_rdy),
@@ -555,17 +558,20 @@ module igs027a #(
             latch_68k_w <= 32'd0;
             counter     <= 32'd1;       // MAME inits counter to 1
             wr_pend     <= 1'b0;
+            arm_advance_d <= 1'b0;
             fiq_level   <= 1'b0;
             fiq_set_count <= 16'd0;
             fiq_clr_count <= 16'd0;
             ram_sel     <= 1'b1;        // type3 dmnfrnt boots with bank 1 selected
         end else begin
-            // ---- ARM write request capture (address phase) ----
+
+            arm_advance_d <= arm_advance;
             if (arm_advance) begin
                 wr_pend <= arm_mreq & arm_write;
                 wr_addr <= arm_addr;
                 wr_be   <= arm_byte_we;
             end
+            if (arm_advance_d) wr_data <= arm_wdata;  // data phase
 
             // type3 share-RAM bank select (ARM write to 0x40000018)
             if (arm_advance && wr_pend && wsel_bsel)

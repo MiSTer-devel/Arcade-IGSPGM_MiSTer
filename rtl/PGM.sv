@@ -39,11 +39,6 @@ module PGM(
     input       [3:0] start,
     input       [3:0] coin,
 
-    input             analog_inc,
-    input             analog_abs,
-    input       [7:0] analog_p1,
-    input       [7:0] analog_p2,
-
     input       [7:0] dipswitch,
 
     output reg [26:0] sdr_cpu_addr,

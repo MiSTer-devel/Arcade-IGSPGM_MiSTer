@@ -200,17 +200,21 @@ localparam CONF_STR = {
     "IGSPGM;SS3E000000:400000;",
     "-;",
     "P1,Video Settings;",
+    "P1-,                    Digital;",
     "P1O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-    "P1O[5:3],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
     "P1O[7:6],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
-    "P1-;",
+    "d1P1O[27],Vertical Crop,Disabled,216p(5x);",
+    "d1P1O[31:28],Crop Offset,0,1,2,3,4,5,-6,-5,-4,-3,-2,-1;",
     "P1O[8],Orientation,Horz,Vert;",
+    "P1-;",
+    "P1-,         Digital and Analog;",
     "P1O[26],Flip Screen,Off,On;",
     "P1-;",
+    "P1-,                     Analog;",
+    "P1O[5:3],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
     "P1O[19],Consumer CRT Sync,On,Off;",
     "P1O[13:9],Analog Video H-Pos,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
     "P1O[18:14],Analog Video V-Pos,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
-    "P1-;",
     "P1O[20],H-Scaler (Analog Out),Off,On;",
     "P1O[25:21],H-Scale,100%,101.25%,102.5%,103.75%,105%,106.25%,107.5%,108.75%,110%,111.25%,112.5%,113.75%,115%,116.25%,117.5%,118.75%,80%,81.25%,82.5%,83.75%,85%,86.25%,87.5%,88.75%,90%,91.25%,92.5%,93.75%,95%,96.25%,97.5%,98.75%;",
     "-;",
@@ -347,7 +351,7 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
     .buttons(buttons),
     .status(status),
-    .status_menumask({direct_video}),
+    .status_menumask({en216p, direct_video}),
     .status_in(status_in),
     .status_set(ss_status_set),
 
@@ -628,64 +632,6 @@ assign ddr_host.busy = DDRAM_BUSY;
 
 wire sync_fix = ~status[19];
 
-
-reg [7:0] analog_p1, analog_p2;
-reg [1:0] prev_spinner;
-reg analog_inc, analog_abs;
-wire [1:0] analog_mode = status[33:32];
-wire [2:0] analog_sens = status[36:34];
-wire analog_invert = status[37];
-
-function bit [7:0] sens(input [7:0] d);
-    bit [7:0] r;
-    unique case (analog_sens)
-        3'b000: r = d;
-        3'b001: r = {d[7], d[7:1]};
-        3'b010: r = {d[7], d[7], d[7:2]};
-        3'b011: r = {d[7], d[7], d[7], d[7:3]};
-        3'b100: r = {d[7], d[7], d[7], d[7], d[7:4]};
-        3'b101: r = d + d;
-        3'b110: r = d + { d[7], d[7:1] };
-        3'b111: r = d + { d[7], d[7], d[7:2] };
-    endcase
-    return analog_invert ? (r ? ~r : r) : r;
-endfunction
-
-always_ff @(posedge clk_sys) begin
-    prev_spinner <= { spinner_p2[8], spinner_p1[8] };
-    analog_p1 <= 0;
-    analog_p2 <= 0;
-    analog_inc <= 0;
-    analog_abs <= 0;
-    unique case(analog_mode)
-        2'b00: begin
-            analog_p1 <= sens(analog_x_p1);
-            analog_p2 <= sens(analog_x_p2);
-            analog_abs <= 1;
-        end
-        2'b01: begin
-            analog_p1 <= sens(paddle_p1 - 8'h7f);
-            analog_p2 <= sens(paddle_p2 - 8'h7f);
-            analog_abs <= 1;
-        end
-        2'b10: begin
-            if (prev_spinner[0] ^ spinner_p1[8]) begin
-                analog_p1 <= sens(spinner_p1[7:0]);
-                analog_inc <= 1;
-            end
-            if (prev_spinner[1] ^ spinner_p2[8]) begin
-                analog_p2 <= sens(spinner_p2[7:0]);
-                analog_inc <= 1;
-            end
-        end
-        2'b11: begin
-            analog_p1 <= sens(input_p1[0] ? 8'h40 : input_p1[1] ? 8'hc0 : 8'h00);
-            analog_p2 <= sens(input_p2[0] ? 8'h40 : input_p2[1] ? 8'hc0 : 8'h00);
-            analog_abs <= 1;
-        end
-    endcase
-end
-
 PGM pgm_inst(
     .clk_50m(clk_sys),
     .reset(reset),
@@ -714,11 +660,6 @@ PGM pgm_inst(
     .joystick_p2(input_p2[9:0]),
     .joystick_p3(input_p3[9:0]),
     .joystick_p4(input_p4[9:0]),
-
-    .analog_abs(analog_abs),
-    .analog_inc(analog_inc),
-    .analog_p1(analog_p1),
-    .analog_p2(analog_p2),
 
     .start({input_p4[BTN_START], input_p3[BTN_START], input_p2[BTN_START], input_p1[BTN_START]}),
     .coin(coin),
@@ -783,6 +724,19 @@ wire       hscale_en      = status[20];
 wire [4:0] hscale         = status[25:21];
 wire       flip_screen    = status[26];
 
+wire       vcrop_en = status[27];
+wire [3:0] vcopt    = status[31:28];
+reg        en216p;
+reg  [4:0] voff;
+
+always @(posedge CLK_VIDEO) begin
+    en216p <= (HDMI_HEIGHT == 12'd1080) && !forced_scandoubler && !scale && !rotate;
+    voff   <= (vcopt < 4'd6) ? {1'b0, vcopt} : ({1'b0, vcopt} - 5'd12);
+end
+
+wire [11:0] crop_size = (en216p & vcrop_en) ? 12'd216 : 12'd0;
+wire  [4:0] crop_off  = voff;
+
 wire       osd_pause      = status[38];
 wire       pause_dim      = ~status[39];
 
@@ -820,6 +774,7 @@ video_path video_path(
 
     .forced_scandoubler, .scandoubler_fx,
     .ar, .scale,
+    .crop_size, .crop_off,
 
     .rotate, .rotate_ccw(1), .flip(0),
     .video_rotated,

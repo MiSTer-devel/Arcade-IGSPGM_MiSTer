@@ -70,7 +70,7 @@ module ram_cache #(
 
     // miss / writeback / fill FSM
     typedef enum logic [2:0] { IDLE, WB_RD, WB_DDR, FILL_REQ, FILL } state_t;
-    state_t          state;
+    state_t          state /* verilator public_flat */;
     logic            m_write;            // current miss is the write port (else read)
     logic [IDXB-1:0] m_idx;
     logic [TAGB-1:0] m_tag;
@@ -96,7 +96,7 @@ module ram_cache #(
         .clock_b(clk), .wren_b(pb_we), .byteena_b(pb_be), .address_b(pb_addr), .data_b(pb_data), .q_b(pb_q)
     );
 
-    wire tag_we = (state == FILL) & ~ddr.busy & ddr.rdata_ready & (beat == BEATS[1:0]-2'd1);
+    wire tag_we = (state == FILL) & ddr.rdata_ready & (beat == BEATS[1:0]-2'd1);
     wire [TAGB-1:0] rd_tag_q, wr_tag_q;
     dualport_ram_unreg #(.WIDTH(TAGB), .WIDTHAD(IDXB)) ctag_rd(
         .clock_a(clk), .wren_a(tag_we), .address_a(m_idx),  .data_a(m_tag), .q_a(),
@@ -231,20 +231,18 @@ module ram_cache #(
                 end
 
                 FILL: begin
-                    if (~ddr.busy) begin
-                        ddr.read <= 1'b0;
-                        if (ddr.rdata_ready) begin
-                            // both words written via cdata ports A/B (above)
-                            beat <= beat + 2'd1;
-                            if (beat == BEATS[1:0]-2'd1) begin
-                                // tag written to both tag BRAMs via tag_we (above)
-                                cvalid[m_idx] <= 1'b1;
-                                // write-allocate merged the store into the fill, so
-                                // the line is dirty; a read fill is clean.
-                                cdirty[m_idx] <= m_write;
-                                just_filled   <= 1'b1;   // suppress 1-cycle re-fill
-                                state         <= IDLE;
-                            end
+                    if (~ddr.busy) ddr.read <= 1'b0;
+                    if (ddr.rdata_ready) begin
+                        // both words written via cdata ports A/B (above)
+                        beat <= beat + 2'd1;
+                        if (beat == BEATS[1:0]-2'd1) begin
+                            // tag written to both tag BRAMs via tag_we (above)
+                            cvalid[m_idx] <= 1'b1;
+                            // write-allocate merged the store into the fill, so
+                            // the line is dirty; a read fill is clean.
+                            cdirty[m_idx] <= m_write;
+                            just_filled   <= 1'b1;   // suppress 1-cycle re-fill
+                            state         <= IDLE;
                         end
                     end
                 end
