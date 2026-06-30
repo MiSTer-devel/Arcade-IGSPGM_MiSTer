@@ -146,7 +146,7 @@ module ram_cache #(
 
     logic wr_ready_r;
     always_ff @(posedge clk) wr_ready_r <= reset ? 1'b0 : (is_idle & wr_hit & ~just_filled);
-    assign wr_ready = ~wr_req | wr_ready_r;
+    assign wr_ready = ~wr_req | (wr_ready_r & wr_stable);
 
     assign ddr.acquire    = (state != IDLE);
     assign ddr.byteenable = 8'hff;
