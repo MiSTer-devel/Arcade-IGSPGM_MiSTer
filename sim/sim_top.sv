@@ -1,5 +1,12 @@
 import system_consts::*;
 
+// Sim savestate build stamp (ASCII, mirrors MiSTer's `BUILD_DATE).  The sim has
+// no build_id.v; the Makefile may inject a date via -DSIM_SS_VERSION, else the
+// "SIM000" sentinel is used.
+`ifndef SIM_SS_VERSION
+`define SIM_SS_VERSION 64'("SIM000")
+`endif
+
 module sim_top(
     input             clk,
     input             reset,
@@ -188,7 +195,7 @@ wire nvram_dl = ioctl_download && (ioctl_index == 8'd8);
 wire nvram_wr = nvram_dl && ioctl_wr && ~|ioctl_addr[26:17];
 
 // Instantiate the PGM module
-PGM pgm_inst(
+PGM #(.SS_VERSION(`SIM_SS_VERSION)) pgm_inst(
     .clk_50m(clk),
     .reset(reset | rom_load_busy),
     .game(board_cfg.game),
@@ -208,11 +215,6 @@ PGM pgm_inst(
     .joystick_p4(joystick_p4),
     .start(start),
     .coin(coin),
-    
-    .analog_inc(analog_inc),
-    .analog_abs(analog_abs),
-    .analog_p1(analog_p1),
-    .analog_p2(analog_p2),
     
     .dipswitch(dipswitch),
     

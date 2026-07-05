@@ -10,9 +10,11 @@ Save-state format notes, as implemented by rtl/memory_stream.sv:
     - bits [31:0]  : item count
     - bits [33:32] : item width code: 0=8-bit, 1=16-bit, 2=32-bit, 3=64-bit
     - bits [60:56] : save-state section index / SSIDX
-  - payload follows. Current simulator saves occupy align8((count + 1) *
-    item_width) bytes; the +1 slot is a legacy/stream-handshake spacer that
-    appears in produced files and must be skipped to find the next header.
+  - payload follows, occupying align8(count * item_width) bytes, OPTIONALLY
+    followed by a 1-word spacer/handshake slot. The spacer is present for some
+    sections and absent for others (it depends on the saving adaptor), so it
+    must NOT be assumed universally - the parser probes for it by checking
+    whether the next record is a valid (higher-indexed) header or terminator.
 - terminator: a 64-bit word with high byte 0xff, normally 0xffffffffffffffff
 
 Update prompt for future agents:
@@ -149,12 +151,38 @@ def parse_pgmstate(path: Path, section_names: dict[int, str]) -> DumpResult:
         width_code = (raw >> 32) & 0x3
         item_bytes = 1 << width_code
         logical_bytes = count * item_bytes
-        # memory_stream currently leaves one extra item slot in the stream for
-        # each chunk. Include it in the physical/stored size so offsets line up
-        # with real .pgmstate files. The logical size remains count*item_bytes.
-        stored_bytes = align8((count + 1) * item_bytes)
         index = high_byte & 0x1F
         data_offset = offset + 8
+
+        # Some sections are followed by a 1-word "spacer"/handshake slot and some
+        # are not (it depends on the saving adaptor), so the spacer cannot be
+        # assumed universally: an earlier `align8((count + 1) * item_bytes)`
+        # over-counts no-spacer sections whose payload is already 8-aligned
+        # (e.g. IGS022_RAM_LO's 8192 bytes), landing 8 bytes into the next
+        # section and desyncing. Instead, take the un-spaced size and probe for
+        # the spacer: the real next record is a terminator, the stream end, or a
+        # higher-indexed section header (sections are saved in ascending index).
+        def next_is_record(o: int) -> bool:
+            if o == stream_end_offset:
+                return True
+            if o + 8 > stream_end_offset:
+                return False
+            nxt = read_u64_le(data, o)
+            if (nxt >> 56) & 0xFF == 0xFF:
+                return True
+            return ((nxt >> 56) & 0x1F) > index
+
+        unspaced = align8(logical_bytes)
+        if next_is_record(data_offset + unspaced):
+            stored_bytes = unspaced
+        elif next_is_record(data_offset + unspaced + 8):
+            stored_bytes = unspaced + 8
+        else:
+            warnings.append(
+                f"section {index} ({section_names.get(index, '?')}) data ends in garbage "
+                f"at 0x{data_offset + unspaced:x}; stream is corrupt or layout changed"
+            )
+            stored_bytes = unspaced
         next_offset = data_offset + stored_bytes
 
         if high_byte & 0xE0:

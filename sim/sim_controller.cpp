@@ -25,7 +25,7 @@
 namespace
 {
 constexpr int kStateOffset = 0x3E000000;
-constexpr int kStateSize = 512 * 1024;
+constexpr int kStateSize = 1 * 1024 * 1024;
 
 // Battery-backed 68000 work RAM exposed as MRA nvram
 constexpr uint8_t kNvramIoctlIndex = 8;
