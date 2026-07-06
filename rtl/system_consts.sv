@@ -34,6 +34,7 @@ package system_consts;
     parameter int SSIDX_IGS027A_IRAM  = 15;   // internal RAM (up to 256KB) via ram_cache rd/wr ports
     parameter int SSIDX_IGS027A_SHARE = 16;   // 68k/ARM shared RAM (64KB)
     parameter int SSIDX_IGS027A_XOR   = 17;   // exrom XOR table (1KB)
+    parameter int SSIDX_VERSION       = 18;   // build-version stamp (informational)
 
     parameter bit [31:0] SS_DDR_BASE         = 32'h3E00_0000;
     // Free DDR window (was the sprite A-ROM, now moved to SDRAM).

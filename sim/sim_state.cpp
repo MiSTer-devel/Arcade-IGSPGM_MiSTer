@@ -129,6 +129,11 @@ bool TickUntilStateCondition(PGM *top, const char *op, const char *phase, const 
 
     PrintStateProgress(op, phase, top, 0, "start");
 
+    // Set PGM_STATE_SECTION_TRACE=1 to log each savestate section as memory_stream
+    // writes (save) or parses (restore) it - useful for diagnosing stream desyncs.
+    const bool sectionTrace = GetEnvU64("PGM_STATE_SECTION_TRACE", 0) != 0;
+    uint32_t prevStreamState = 0xffffffff;
+
     while (!condition())
     {
         TickResult tickResult = gSimCore.Tick(1);
@@ -136,6 +141,24 @@ bool TickUntilStateCondition(PGM *top, const char *op, const char *phase, const 
         const uint64_t elapsedTicks = nowTicks - startTicks;
         const uint8_t ssState = top->ss_state_out;
         const bool changed = ssState != lastSsState;
+
+        if (sectionTrace)
+        {
+            auto *root = top->rootp;
+            const uint32_t ms = root->sim_top__DOT__pgm_inst__DOT__save_state_data__DOT__memory_stream__DOT__state;
+            // QUERY_SCATTER_WAIT(12): a section header was just parsed during restore.
+            if (ms == 12 && prevStreamState != 12)
+            {
+                std::fprintf(stderr,
+                    "[section] idx=%u width=%u remaining=%u current=0x%08x ssp_restore=0x%08x\n",
+                    root->sim_top__DOT__pgm_inst__DOT__save_state_data__DOT__memory_stream__DOT__chunk_index,
+                    root->sim_top__DOT__pgm_inst__DOT__save_state_data__DOT__memory_stream__DOT__chunk_width,
+                    root->sim_top__DOT__pgm_inst__DOT__save_state_data__DOT__memory_stream__DOT__chunk_remaining,
+                    root->sim_top__DOT__pgm_inst__DOT__save_state_data__DOT__memory_stream__DOT__current_addr,
+                    root->sim_top__DOT__pgm_inst__DOT__ss_restore_ssp);
+            }
+            prevStreamState = ms;
+        }
 
         if (tickResult.mReason != TickStopReason::COMPLETED)
         {
@@ -241,6 +264,24 @@ bool SimState::RestoreState(const char *filename)
     mTop->ss_do_restore = 0;
     if (!TickUntilStateCondition(mTop, "restore", "state machine idle", [&] { return mTop->ss_state_out == 0; }))
         return false;
+
+    {
+        auto *root = mTop->rootp;
+        uint64_t fileVer = root->sim_top__DOT__pgm_inst__DOT__ss_restored_version;
+        // SV string literals are packed big-endian (first char in the high byte);
+        // decode MSB-first and skip leading nulls from the zero-extension.
+        char ascii[9] = {0};
+        int n = 0;
+        for (int i = 7; i >= 0; i--)
+        {
+            char c = static_cast<char>((fileVer >> (8 * i)) & 0xff);
+            if (c == 0 && n == 0)
+                continue;
+            ascii[n++] = c;
+        }
+        std::fprintf(stderr, "[sim-state] restored build version=\"%s\"\n",
+                     ascii);
+    }
 
     std::fprintf(stderr, "[sim-state] restore complete: %s\n", fullPath.c_str());
     std::fflush(stderr);

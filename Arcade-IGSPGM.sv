@@ -196,6 +196,9 @@ assign BUTTONS = 0;
 //////////////////////////////////////////////////////////////////
 
 `include "build_id.v"
+
+localparam [63:0] SS_VERSION = 64'(`BUILD_DATE);
+
 localparam CONF_STR = {
     "IGSPGM;SS3E000000:400000;",
     "-;",
@@ -632,7 +635,7 @@ assign ddr_host.busy = DDRAM_BUSY;
 
 wire sync_fix = ~status[19];
 
-PGM pgm_inst(
+PGM #(.SS_VERSION(SS_VERSION)) pgm_inst(
     .clk_50m(clk_sys),
     .reset(reset),
 

@@ -17,7 +17,9 @@
 
 import system_consts::*;
 
-module PGM(
+module PGM #(
+    parameter [63:0] SS_VERSION = 64'd0
+)(
     input             clk_50m,
     input             reset,
 
@@ -170,6 +172,7 @@ reg [31:0] ss_restore_ssp;
 reg ss_write = 0;
 reg ss_read = 0;
 wire ss_busy;
+reg  [63:0] ss_restored_version /* verilator public_flat */ = 0;
 
 ssbus_if ssbus();
 ssbus_if ssb[20]();
@@ -188,6 +191,19 @@ always_ff @(posedge clk) begin
         end else if (ssb[SSIDX_GLOBAL].write) begin
             ss_restore_ssp <= ssb[SSIDX_GLOBAL].data[31:0];
             ssb[SSIDX_GLOBAL].write_ack(SSIDX_GLOBAL);
+        end
+    end
+end
+
+
+always_ff @(posedge clk) begin
+    ssb[SSIDX_VERSION].setup(SSIDX_VERSION, 1, 3); // 1 x 64-bit value (ASCII)
+    if (ssb[SSIDX_VERSION].access(SSIDX_VERSION)) begin
+        if (ssb[SSIDX_VERSION].read) begin
+            ssb[SSIDX_VERSION].read_response(SSIDX_VERSION, SS_VERSION);
+        end else if (ssb[SSIDX_VERSION].write) begin
+            ss_restored_version <= ssb[SSIDX_VERSION].data[63:0];
+            ssb[SSIDX_VERSION].write_ack(SSIDX_VERSION);
         end
     end
 end
