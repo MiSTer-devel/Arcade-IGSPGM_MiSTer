@@ -15,7 +15,7 @@
 		<dip name="Unused 2" bits="6" ids="On,Off"/>
 		<dip name="Debug" bits="7" ids="On,Off"/>
 	</switches>
-	<rom index="0" address="0x30000000" zip="pgm.zip|puzzli2s.zip">
+	<rom index="0" address="0x30000000" zip="pgm.zip|puzzli2.zip|puzzli2s.zip">
 		<!-- SYSTEM INFO: GAME_PUZZLI2 -->
 		<part>1c 00</part>
 
