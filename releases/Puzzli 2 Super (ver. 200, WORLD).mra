@@ -15,18 +15,18 @@
 		<dip name="Unused 2" bits="6" ids="On,Off"/>
 		<dip name="Debug" bits="7" ids="On,Off"/>
 	</switches>
-	<rom index="0" address="0x30000000" zip="pgm.zip|puzzli2s.zip">
+	<rom index="0" address="0x30000000" zip="pgm.zip|puzzli2.zip|puzzli2s.zip">
 		<!-- SYSTEM INFO: GAME_PUZZLI2 -->
 		<part>1c 00</part>
 
 		<part>00 00020000 00000000</part>
-		<part name="pgm_p02s.u20"/>
+		<part name="pgm_p02s.u20" crc="78c15fa2"/>
 
 		<part>01 00200000 00000000</part>
-		<part name="pgm_t01s.rom"/>
+		<part name="pgm_t01s.rom" crc="1a7123a0"/>
 
 		<part>02 00200000 00000000</part>
-		<part name="pgm_m01s.rom"/>
+		<part name="pgm_m01s.rom" crc="45ae7159"/>
 
 		<!-- CART PROG (byte split ROM) -->
 		<part>03 00100000 00100000</part>
