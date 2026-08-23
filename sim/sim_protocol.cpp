@@ -1317,6 +1317,17 @@ std::string SimProtocol::HandleLine(const std::string &line)
         auto result = mController.SetDipSwitch(static_cast<uint8_t>(switchIndex), enabled);
         return SerializeJson(WrapControllerResult(id, result, JsonValue::Object({{"value", JsonValue::Number(mController.GetDipSwitches())}})));
     }
+    if (method == "input.set_region")
+    {
+        uint64_t value = 0;
+        if (!RequireObjectField(params, "value", field, error) || !RequireNumber(*field, "value", value, error))
+            return SerializeJson(MakeErrorResponse(id, "bad_request", error));
+        if (value > 0xff)
+            return SerializeJson(MakeErrorResponse(id, "bad_request", "region value must be 0..255"));
+
+        auto result = mController.SetRegion(static_cast<uint8_t>(value));
+        return SerializeJson(WrapControllerResult(id, result, JsonValue::Object({{"value", JsonValue::Number(mController.GetRegion())}})));
+    }
     if (method == "input.get_state")
     {
         auto result = mController.GetInputState();

@@ -5,7 +5,7 @@
 	<rotation>horizontal</rotation>
 	<mameversion>288</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
-	<switches default="ffff">
+	<switches default="06ff">
 		<dip name="Service Mode" bits="0" ids="On,Off"/>
 		<dip name="Music" bits="1" ids="Off,On"/>
 		<dip name="Voice" bits="2" ids="Off,On"/>
@@ -14,6 +14,7 @@
 		<dip name="Unused 1" bits="5" ids="On,Off"/>
 		<dip name="Unused 2" bits="6" ids="On,Off"/>
 		<dip name="Debug" bits="7" ids="On,Off"/>
+		<dip name="Region" bits="8,9,10,11,12,13,14,15" ids="Japan,Korea,Taiwan,Hong Kong,China,World,Singapore" values="1,2,3,4,5,6,7"/>
 	</switches>
 	<rom index="0" address="0x30000000" zip="pgm.zip|drgw3.zip|drgw3103.zip">
 		<!-- REGION_CART_PROG_ROM = 03 / CART_TILE = 04 / CART_MUSIC = 05 -->

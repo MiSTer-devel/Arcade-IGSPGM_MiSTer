@@ -172,6 +172,7 @@ ControllerResult<EmptyResult> SimController::Initialize(bool headless)
 
     Verilated::traceEverOn(true);
     gSimCore.mTop->dipswitch = mDipSwitch;
+    gSimCore.mTop->region = mRegion;
 
     mInitialized = true;
     return ControllerResult<EmptyResult>::Success({});
@@ -223,7 +224,15 @@ ControllerResult<EmptyResult> SimController::LoadGame(const std::string &name)
     }
 
     mStateManager->SetGameName(GameLoadedShortName());
+    const std::string loadedName = GameLoadedShortName();
+    if (loadedName == "orlegend") mRegion = 0x00;
+    else if (loadedName == "killbld") mRegion = 0x21;
+    else if (loadedName == "drgw3" || loadedName == "dwex") mRegion = 0x06;
+    else if (loadedName == "puzzli2" || loadedName == "pstar") mRegion = 0x05;
+    else if (loadedName == "happy6") mRegion = 0x00;
+    else mRegion = 0xff;
     gSimCore.mTop->dipswitch = mDipSwitch;
+    gSimCore.mTop->region = mRegion;
     return ControllerResult<EmptyResult>::Success({});
 }
 
@@ -239,7 +248,9 @@ ControllerResult<EmptyResult> SimController::LoadMra(const std::string &path)
     }
 
     mStateManager->SetGameName(gSimCore.GetGameName());
+    mRegion = GameLoadedRegionDefault();
     gSimCore.mTop->dipswitch = mDipSwitch;
+    gSimCore.mTop->region = mRegion;
     return ControllerResult<EmptyResult>::Success({});
 }
 
@@ -574,6 +585,17 @@ ControllerResult<EmptyResult> SimController::SetDipSwitches(uint8_t value)
     return ControllerResult<EmptyResult>::Success({});
 }
 
+ControllerResult<EmptyResult> SimController::SetRegion(uint8_t value)
+{
+    auto initResult = EnsureInitialized();
+    if (!initResult.ok)
+        return initResult;
+
+    mRegion = value;
+    gSimCore.mTop->region = mRegion;
+    return ControllerResult<EmptyResult>::Success({});
+}
+
 ControllerResult<InputStateResult> SimController::GetInputState() const
 {
     InputStateResult result;
@@ -677,6 +699,11 @@ ControllerResult<RunResult> SimController::PressInput(const std::string &name)
 uint8_t SimController::GetDipSwitches() const
 {
     return mDipSwitch;
+}
+
+uint8_t SimController::GetRegion() const
+{
+    return mRegion;
 }
 
 ControllerResult<StateListResult> SimController::ListStates() const

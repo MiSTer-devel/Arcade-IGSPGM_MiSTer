@@ -60,6 +60,7 @@ static const uint32_t PROT_ROM_DDR_BASE        = 0x3CB00000;  // igs022 64KB pri
 Game GameFind(const char *name);
 const char *GameName(Game game);
 const char *GameLoadedShortName();
+uint8_t GameLoadedRegionDefault();
 bool GameIsPgmFilePath(const char *name);
 
 bool GameInit(Game game);

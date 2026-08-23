@@ -647,6 +647,7 @@ PGM #(.SS_VERSION(SS_VERSION)) pgm_inst(
     .nvram_q(ioctl_din),
 
     .game(board_cfg.game),
+    .board_flags(board_cfg.flags),
 
     .ce_pixel(core_ce_pix),
     .hsync(core_hs),
@@ -658,6 +659,7 @@ PGM #(.SS_VERSION(SS_VERSION)) pgm_inst(
     .blue(core_b),
 
     .dipswitch(~dip_sw[0]),
+    .region(dip_sw[1]),
 
     .joystick_p1(input_p1[9:0]),
     .joystick_p2(input_p2[9:0]),

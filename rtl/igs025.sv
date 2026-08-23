@@ -37,8 +37,8 @@ module igs025 #(
     logic [15:0] kb_prot_hold;
     logic [15:0] kb_prot_hilo;
     logic [7:0]  kb_prot_hilo_select;
-    logic [7:0]  kb_region;
-    logic [31:0] kb_game_id;
+    logic [7:0]  kb_region /* verilator public_flat */;
+    logic [31:0] kb_game_id /* verilator public_flat */;
 
     logic write_active_d;
     logic read_active_d;

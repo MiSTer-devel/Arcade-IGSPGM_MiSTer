@@ -31,8 +31,14 @@ class MRALoader
         return mLastError;
     }
 
+    uint8_t GetRegionDefault() const
+    {
+        return mRegionDefault;
+    }
+
   private:
     std::string mLastError;
+    uint8_t mRegionDefault = 0xff;
 
     /**
      * Parse hex string into bytes

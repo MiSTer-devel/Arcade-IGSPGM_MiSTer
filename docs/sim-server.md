@@ -880,6 +880,20 @@ Returns the current 8-bit DIP switch value:
 {"value":1}
 ```
 
+### `input.set_region`
+
+Set the protection-device region byte independently of the physical DIP bank. MRA loads initialize this value from bits 8 through 15 of the MRA switch default.
+
+```json
+{"id":23,"method":"input.set_region","params":{"value":5}}
+```
+
+The value must be from `0` through `255`. A value of `255` leaves MAME-style `RegionHack` protections unchanged. The result returns the current region byte:
+
+```json
+{"value":5}
+```
+
 ## Error handling notes
 
 Common error codes include:

@@ -148,8 +148,10 @@ package system_consts;
 
     typedef struct packed {
         game_t    game;
-        bit [7:0] unused;
+        bit [7:0] flags;
     } board_cfg_t;
+
+    localparam bit [7:0] BOARD_FLAG_SVG_OLD_IROM = 8'h01;
 
     typedef struct packed
     {
@@ -158,5 +160,4 @@ package system_consts;
     } arom_offset_t;
 
 endpackage
-
 

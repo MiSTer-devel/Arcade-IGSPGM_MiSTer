@@ -13,6 +13,7 @@ bool MRALoader::Load(const std::string &mraPath, std::vector<uint8_t> &romData, 
 {
     romData.clear();
     mLastError.clear();
+    mRegionDefault = 0xff;
 
     // Save current search paths state
     auto savedPaths = gFileSearch.SaveSearchPaths();
@@ -26,6 +27,19 @@ bool MRALoader::Load(const std::string &mraPath, std::vector<uint8_t> &romData, 
         mLastError = "Failed to parse MRA file: " + std::string(result.description());
         gFileSearch.RestoreSearchPaths(savedPaths);
         return false;
+    }
+
+    const std::string switchDefault = doc.child("misterromdescription").child("switches").attribute("default").as_string("");
+    if (switchDefault.size() >= 4)
+    {
+        try
+        {
+            mRegionDefault = static_cast<uint8_t>((std::stoul(switchDefault, nullptr, 16) >> 8) & 0xff);
+        }
+        catch (...)
+        {
+            mRegionDefault = 0xff;
+        }
     }
 
     // Add the MRA directory to search paths

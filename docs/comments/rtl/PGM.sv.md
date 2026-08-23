@@ -19,6 +19,18 @@ locked enable: word/byte write ALL-window rows read ~+1.4% vs hardware
 hardware r/w ALL asymmetry is not reproduced.  Revisit only together with
 pulse-level bus-timing fidelity in the CPU VRAM access path.
 
+### `region`
+
+The second MRA switch byte is a raw protection-region value, separate from
+the active-low physical DIP bank.  ASIC3 uses its low three bits; IGS025 and
+IGS027A consume the full byte according to their game-specific protocols.
+
+### `BOARD_FLAG_SVG_OLD_IROM`
+
+SVG 101HK and 101TW use an older internal ARM ROM layout than SVG 200.  The
+board flag selects the corresponding region-patch offset without creating a
+second game identifier.
+
 ### `ce_cpu` / `ce_cpu_180` chaser
 
 `ce_cpu_count` chases `ce_steady_count` at up to one phi edge per clk

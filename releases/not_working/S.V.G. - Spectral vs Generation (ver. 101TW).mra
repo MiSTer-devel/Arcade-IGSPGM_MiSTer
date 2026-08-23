@@ -7,7 +7,7 @@
 	<rotation>horizontal</rotation>
 	<mameversion>277</mameversion>
 	<buttons default="B,A,X,Y,Start,Select,L,R" names="A,B,C,D,-,-,Start,Coin,Pause,SS"/>
-	<switches default="ffff">
+	<switches default="01ff">
 		<dip name="Service Mode" bits="0" ids="On,Off"/>
 		<dip name="Music" bits="1" ids="Off,On"/>
 		<dip name="Voice" bits="2" ids="Off,On"/>
@@ -16,10 +16,11 @@
 		<dip name="Unused 1" bits="5" ids="On,Off"/>
 		<dip name="Unused 2" bits="6" ids="On,Off"/>
 		<dip name="Debug" bits="7" ids="On,Off"/>
+		<dip name="Region" bits="8,9,10,11,12,13,14,15" ids="China,Taiwan,Japan (AMI license),Korea,Hong Kong,Spanish Territories,World,Don't Change" values="0,1,2,3,4,5,6,255"/>
 	</switches>
 	<rom index="0" address="0x30000000" zip="pgm.zip|svg.zip|svgtw.zip">
 		<!-- SYSTEM INFO (game id = 21) -->
-		<part>15 00</part>
+		<part>15 01</part>
 
 		<!-- BIOS PROG / TILE / MUSIC -->
 		<part>00 00020000 00000000</part>

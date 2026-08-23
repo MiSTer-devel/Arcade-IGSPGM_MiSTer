@@ -24,6 +24,7 @@ module PGM #(
     input             reset,
 
     input  game_t     game,
+    input       [7:0] board_flags,
 
     output            ce_pixel,
     output            hsync,
@@ -42,6 +43,7 @@ module PGM #(
     input       [3:0] coin,
 
     input       [7:0] dipswitch,
+    input       [7:0] region,
 
     output reg [26:0] sdr_cpu_addr,
     input      [63:0] sdr_cpu_q,
@@ -931,7 +933,7 @@ IGS026_X #(.SS_IDX(SSIDX_IGS026_X)) igs026_x(
 pgm_asic3 #(.SS_IDX(SSIDX_ASIC3)) asic3(
     .clk,
     .reset,
-    .region(3'd0),
+    .region(region[2:0]),
 
     .cpu_addr(cpu_word_addr[3:0]),
     .cpu_din(cpu_data_out),
@@ -984,15 +986,11 @@ prot_cache prot_cache(
 // IGS022 + IGS025 protection (The Killing Blade / Dragon World 3).
 wire [15:0] igs025_q, igs022_ram_q;
 wire        prot_trigger;
-wire [7:0]  prot_region = (game == GAME_KILLBLD) ? 8'h21 :  // World
-                          (game == GAME_DRGW3)   ? 8'h06 :  // World
-                          8'h00;
-
 igs025 #(.SS_IDX(SSIDX_IGS025)) igs025(
     .clk,
     .reset,
     .game,
-    .region(prot_region),
+    .region(region),
 
     .cpu_addr(cpu_word_addr[3:0]),
     .cpu_din(cpu_data_out),
@@ -1104,6 +1102,9 @@ igs027a #(
     .clk,
     .reset,
     .ce(ce_arm),
+    .game,
+    .region,
+    .svg_old_irom(|(board_flags & BOARD_FLAG_SVG_OLD_IROM)),
 
     // savestate.  Freeze the ARM only once the system is actually paused
     // (ss_pause & paused): requesting the freeze earlier would stop the ARM

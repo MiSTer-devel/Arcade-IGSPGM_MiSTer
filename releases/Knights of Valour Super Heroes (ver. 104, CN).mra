@@ -14,6 +14,7 @@
 		<dip name="Unused 1" bits="5" ids="On,Off"/>
 		<dip name="Unused 2" bits="6" ids="On,Off"/>
 		<dip name="Debug" bits="7" ids="On,Off"/>
+		<dip name="Region" bits="8,9,10,11,12,13,14,15" ids="China,Taiwan,Japan (Alta license),Korea,Hong Kong,World,Untouched" values="0,1,2,3,4,5,255"/>
 	</switches>
 	<rom index="0" address="0x30000000" zip="pgm.zip|kovsh.zip">
 		<!-- REGION_BIOS_PROG_ROM  = 00 -->

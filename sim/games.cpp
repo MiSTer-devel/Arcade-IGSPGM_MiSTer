@@ -746,6 +746,7 @@ static const char *gGameNames[N_GAMES] = {
 };
 
 static std::string gLoadedGameShortName = "unknown";
+static uint8_t gLoadedRegionDefault = 0xff;
 
 Game GameFind(const char *name)
 {
@@ -770,6 +771,11 @@ const char *GameName(Game game)
 const char *GameLoadedShortName()
 {
     return gLoadedGameShortName.c_str();
+}
+
+uint8_t GameLoadedRegionDefault()
+{
+    return gLoadedRegionDefault;
 }
 
 bool GameIsPgmFilePath(const char *name)
@@ -1787,6 +1793,7 @@ static void LoadHappy6()
 
 bool GameInit(Game game)
 {
+    gLoadedRegionDefault = 0xff;
     gFileSearch.ClearSearchPaths();
     gFileSearch.AddSearchPath(".");
 
@@ -1998,6 +2005,8 @@ bool GameInitMra(const char *mraPath)
         printf("Failed to load MRA file '%s': %s\n", mraPath, loader.GetLastError().c_str());
         return false;
     }
+
+    gLoadedRegionDefault = loader.GetRegionDefault();
 
     printf("Loaded MRA: %s\n", mraPath);
     printf("ROM data size: %zu bytes\n", romData.size());

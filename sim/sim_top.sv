@@ -33,6 +33,7 @@ module sim_top(
     input       [7:0] analog_p2,
 
     input       [7:0] dipswitch,
+    input       [7:0] region /* verilator public_flat */,
 
     output reg [26:0] sdr_addr,
     input      [63:0] sdr_q,
@@ -199,6 +200,7 @@ PGM #(.SS_VERSION(`SIM_SS_VERSION)) pgm_inst(
     .clk_50m(clk),
     .reset(reset | rom_load_busy),
     .game(board_cfg.game),
+    .board_flags(board_cfg.flags),
     
     .ce_pixel(ce_pixel),
     .hsync(hsync),
@@ -217,6 +219,7 @@ PGM #(.SS_VERSION(`SIM_SS_VERSION)) pgm_inst(
     .coin(coin),
     
     .dipswitch(dipswitch),
+    .region(region),
     
     .sdr_cpu_addr(sdr_cpu_addr),
     .sdr_cpu_q(sdr_cpu_q),

@@ -27,6 +27,9 @@ module igs027a #(
     input  logic        clk,
     input  logic        reset,        // active-high, synchronous (matches core)
     input  logic        ce,           // ARM advance enable (e.g. ce_16m)
+    input  game_t       game,
+    input  logic [7:0]  region,
+    input  logic        svg_old_irom,
 
     // ---- savestate ----
     input  logic        ss_restore,   // pulse: load defaults, then stream restores
@@ -48,9 +51,9 @@ module igs027a #(
     // ---- 68000 side: shared RAM window (type1 0x4f0000-0x4f003f 64B,
     //      type2 0xd00000-0xd0ffff 64KB) ----
     input  logic        m68k_share_cs_n,
-    input  logic [14:0] m68k_share_hw,  // halfword index (byte_addr[15:1])
+    input  logic [14:0] m68k_share_hw /* verilator public_flat */,  // halfword index (byte_addr[15:1])
     input  logic [15:0] m68k_share_din,
-    output logic [15:0] m68k_share_q,
+    output logic [15:0] m68k_share_q /* verilator public_flat */,
     input  logic        m68k_share_we_u, // upper byte write strobe
     input  logic        m68k_share_we_l, // lower byte write strobe
 
@@ -240,9 +243,21 @@ module igs027a #(
     wire [31:0] exrom_word = arm_type3 ? exrom_raw
                                        : (exrom_raw ^ {exrom_xb, 8'h00, exrom_xb, 8'h00});
 
+    logic [31:0] int_rom_word /* verilator public_flat */;
+    always_comb begin
+        int_rom_word = cache_rdata;
+        if (region != 8'hff) begin
+            if ((game == GAME_THEGLAD && arm_addr[13:2] == 12'hcc5) ||
+                (game == GAME_HAPPY6  && arm_addr[13:2] == 12'hd61) ||
+                (game == GAME_SVG && !svg_old_irom && arm_addr[13:2] == 12'hf0f) ||
+                (game == GAME_SVG &&  svg_old_irom && arm_addr[13:2] == 12'hea3))
+                int_rom_word[31:16] = {8'h00, region};
+        end
+    end
+
     logic [31:0] arm_rd_mux;
     always_comb begin
-        if      (sel_rom)   arm_rd_mux = cache_rdata;   // internal ROM via prot_cache
+        if      (sel_rom)   arm_rd_mux = int_rom_word;  // internal ROM via prot_cache
         else if (sel_iram)  arm_rd_mux = q_iram;
         else if (sel_xor)   arm_rd_mux = q_xor;
         else if (sel_share) arm_rd_mux = q_share;
@@ -306,8 +321,9 @@ module igs027a #(
     wire        arm_fiq_taken = arm_rd & (arm_addr == 32'h0000_001c);
 
     logic        wr_pend;
-    logic [31:0] wr_addr;
+    logic [31:0] wr_addr /* verilator public_flat */;
     logic [31:0] wr_data /* verilator public_flat */;
+    logic [31:0] wr_pc /* verilator public_flat */;
     logic        arm_advance_d;   // arm_advance delayed 1 cycle -> store data phase
     logic [3:0]  wr_be;
     wire  [31:0] wr_wmask = {{8{wr_be[3]}}, {8{wr_be[2]}}, {8{wr_be[1]}}, {8{wr_be[0]}}};
@@ -328,6 +344,20 @@ module igs027a #(
     function automatic logic [31:0] wmerge(input logic [31:0] old, input logic [31:0] wd, input logic [31:0] m);
         return (old & ~m) | (wd & m);
     endfunction
+
+    logic [31:0] protected_wr_data /* verilator public_flat */;
+    always_comb begin
+        protected_wr_data = wr_data;
+        if (game == GAME_PUZZLI2 && wr_addr == 32'h1000_0020)
+            protected_wr_data[7:0] = region;
+        if (game == GAME_PSTAR && wr_addr == 32'h1000_0008)
+            protected_wr_data[7:0] = region;
+        if (region != 8'hff && wr_addr == 32'h4800_0138 &&
+            ((game == GAME_KOV2     && wr_pc == 32'h0000_0190) ||
+             (game == GAME_KOV2P    && wr_pc == 32'h0000_01b0) ||
+             (game == GAME_MARTMAST && wr_pc == 32'h0000_0170)))
+            protected_wr_data[15:0] = {8'h00, region};
+    end
 
     wire [13:0] m68k_sw  = m68k_share_hw[14:1];
     wire        m68k_shi = arm_has_exrom ?  m68k_share_hw[0]    // type2/3
@@ -368,7 +398,7 @@ module igs027a #(
     wire [31:0] ramc_wr_addr = ss_iram_own ? ss_iram_addr
                                            : (PROT_IRAM_DDR_BASE + {13'd0, iram_off(wr_addr)});
 
-    wire [31:0] ramc_wr_data = ss_iram_own ? ssbus_iram.data[31:0] : wr_data;
+    wire [31:0] ramc_wr_data = ss_iram_own ? ssbus_iram.data[31:0] : protected_wr_data;
     wire [3:0]  ramc_wr_be   = ss_iram_own ? 4'hf : wr_be;
 
     ram_cache #(.LINES(256), .DDR_BASE(PROT_IRAM_DDR_BASE)) iram_cache (
@@ -485,7 +515,7 @@ module igs027a #(
         .clk(clk), .reset(reset),
         .arm_rd (arm_sh_rd & ~bank_arm), .arm_rd_off(arm_rd_off),
         .arm_wr (arm_sh_wr & ~bank_arm), .arm_wr_off(arm_wr_off),
-        .arm_wdata(wr_data), .arm_be(wr_be), .arm_q(c0_arm_q), .arm_ready(c0_arm_rdy),
+        .arm_wdata(protected_wr_data), .arm_be(wr_be), .arm_q(c0_arm_q), .arm_ready(c0_arm_rdy),
         .m68k_rd(m68k_rd_q & ~bank_68k), .m68k_wr(m68k_wr_q & ~bank_68k),
         .m68k_off(m68k_off), .m68k_wdata(m68k_wd), .m68k_be(m68k_be),
         .m68k_q(c0_m68k_q), .m68k_ready(c0_m68k_rdy),
@@ -497,7 +527,7 @@ module igs027a #(
         .clk(clk), .reset(reset),
         .arm_rd (arm_sh_rd & bank_arm), .arm_rd_off(arm_rd_off),
         .arm_wr (arm_sh_wr & bank_arm), .arm_wr_off(arm_wr_off),
-        .arm_wdata(wr_data), .arm_be(wr_be), .arm_q(c1_arm_q), .arm_ready(c1_arm_rdy),
+        .arm_wdata(protected_wr_data), .arm_be(wr_be), .arm_q(c1_arm_q), .arm_ready(c1_arm_rdy),
         .m68k_rd(m68k_rd_q & bank_68k), .m68k_wr(m68k_wr_q & bank_68k),
         .m68k_off(m68k_off), .m68k_wdata(m68k_wd), .m68k_be(m68k_be),
         .m68k_q(c1_m68k_q), .m68k_ready(c1_m68k_rdy),
@@ -512,7 +542,10 @@ module igs027a #(
 
     // 68k read result (halfword) + stall to the 68k (via PGM ce-defer)
     wire [31:0] m68k_share_word = bank_68k ? c1_m68k_q : c0_m68k_q;
-    assign m68k_share_q    = m68k_shi ? m68k_share_word[31:16] : m68k_share_word[15:0];
+    wire [15:0] m68k_share_raw /* verilator public_flat */ = m68k_shi ? m68k_share_word[31:16] : m68k_share_word[15:0];
+    assign m68k_share_q = region != 8'hff && m68k_share_hw == 15'd4 &&
+                           (game == GAME_KOVSH || game == GAME_PHOTOY2K)
+                         ? {8'h00, region} : m68k_share_raw;
     assign m68k_share_ready = c0_m68k_rdy & c1_m68k_rdy;
 
     // savestate read result + readiness
@@ -558,6 +591,7 @@ module igs027a #(
             latch_68k_w <= 32'd0;
             counter     <= 32'd1;       // MAME inits counter to 1
             wr_pend     <= 1'b0;
+            wr_pc       <= 32'd0;
             arm_advance_d <= 1'b0;
             fiq_level   <= 1'b0;
             fiq_set_count <= 16'd0;
@@ -570,6 +604,7 @@ module igs027a #(
                 wr_pend <= arm_mreq & arm_write;
                 wr_addr <= arm_addr;
                 wr_be   <= arm_byte_we;
+                wr_pc   <= dbg_pc - 32'd8;
             end
             if (arm_advance_d) wr_data <= arm_wdata;  // data phase
 
