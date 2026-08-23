@@ -43,6 +43,7 @@ static void init()
         for( u8 x = 0; x < 8; x++ )
         {
             sym_at(codes[code], x + 1, y + 3, 1);
+            sym_at(codes[code], x + 1, y + 16, 0);
             code++;
         }
     }
@@ -96,6 +97,25 @@ static void update()
     spr->address_lo = 0;
     spr->address_hi = 0;
     spr->xpos = 200;
+    spr->ypos = 100;
+    spr->unk1 = 0;
+    spr->unk2 = 0;
+    spr->unk3 = 0;
+    spr++;
+
+    spr->color = 0;
+    spr->height = 89;
+    spr->width = 10;
+    spr->prio = 0;
+    spr->xflip = 0;
+    spr->yflip = 0;
+    spr->xscale_mode = (vblank_count >> 7) & 0x1;
+    spr->xscale_table = (vblank_count >> 3) & 0xf;
+    spr->yscale_mode = (vblank_count >> 7) & 0x1;
+    spr->yscale_table = (vblank_count >> 3) & 0xf;
+    spr->address_lo = 0;
+    spr->address_hi = 0;
+    spr->xpos = 240;
     spr->ypos = 100;
     spr->unk1 = 0;
     spr->unk2 = 0;

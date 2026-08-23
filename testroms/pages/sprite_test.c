@@ -166,7 +166,14 @@ static void update()
                 SpriteEndMarker(count);
                 break;
 
-
+            case 6:
+                for( int i = 0; i < count; i++ )
+                {
+                    SpriteSimple(i, &dude_128, 0, sprite_x + (i * 8), sprite_y);
+                    SPRITE_BUFFER[i].height = dude_128.height / 2;
+                }
+                SpriteEndMarker(count);
+                break;
 
             default:
                 SpriteEndMarker(0);
@@ -178,4 +185,3 @@ static void update()
 }
 
 PAGE_REGISTER(sprite_test, init, update, NULL);
-
